@@ -87,7 +87,7 @@ the suspend. The main loop wakes at least once per second (Go timers are
 monotonic), so after a resume the timer ends within one tick.
 
 - [ ] All four edges render correctly and shrink in the documented direction. *(Verified against the fake compositor — anchors, sizes, pixels — in `internal/bar`; needs an on-screen check on KDE Plasma.)*
-- [ ] A 25 m timer ends within 1 s of wall-clock time.
+- [x] A 25 m timer ends within 1 s of wall-clock time. *(Real 25 m run against the fake compositor with `POMBAR_LONG_RUN=25m go test -run TestLongRun ./cmd/pombar`: ended 0.6 ms after the wall-clock deadline, 1500 frames. M2 code; M3/M4 did not change the countdown loop.)*
 - [ ] Same, with a laptop suspend/resume in the middle (verify the monotonic clock behaviour across suspend on Linux; if it pauses, compare against wall clock and fix). *(Fixed by design: wall-clock deadline; simulated in `TestCountdownEndsAfterSuspend`. Needs a real suspend/resume on a laptop.)*
 - [x] `go test ./internal/timer` covers fraction and color math (100 % statement coverage).
 
