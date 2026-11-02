@@ -41,8 +41,16 @@ From a checkout: `make build` (output in `bin/pomobar`).
 ## Usage
 
 ```
-pomobar [flags] <duration>
+pomobar [flags] <duration>   start a timer in the background
+pomobar status               show the running timer
+pomobar pause | resume       pause or resume the running timer
+pomobar stop                 cancel the running timer (no notification)
 ```
+
+`pomobar <duration>` returns as soon as the bar is on screen; the timer keeps
+running in a background pomobar process, which you control with the other
+commands. Only one timer runs at a time: starting another while one is
+running fails with a message saying how much time is left.
 
 `<duration>` uses Go syntax: `25m`, `1h30m`, `90s`, `2m30s`. Flags can go
 before or after it.
@@ -52,14 +60,16 @@ before or after it.
 | `-edge` | `bottom` | Screen edge: `top`, `bottom`, `left` or `right`. |
 | `-thickness` | `4` | Bar thickness in logical pixels (scaled on HiDPI outputs). |
 | `-reserve` | off | Reserve the bar's strip so windows do not cover it (layer-shell exclusive zone). By default the bar is drawn over windows. |
-| `-label` | — | Notification body. Default: "Your <duration> timer has finished." |
+| `-label` | — | Notification body, also shown by `pomobar status`. Default notification body: "Your <duration> timer has finished." |
 | `-quiet` | off | Do not send a notification at the end. |
+| `-foreground` | off | Run the timer in this terminal and exit when it ends (for scripts; Ctrl-C cancels). |
 | `-version` | — | Print the version and exit. |
 
 The bar spans the whole edge. Horizontal bars shrink toward the left,
 vertical bars shrink toward the bottom. It is green with more than 50 % of
 the time left, amber from 50 % to 20 % and red below 20 %, blending over
-5 % of the duration below each threshold.
+5 % of the duration below each threshold. While paused it is drawn at half
+opacity.
 
 ### Examples
 
@@ -68,21 +78,32 @@ pomobar 25m                                   # a classic pomodoro
 pomobar -label "Write the report" 50m         # custom notification text
 pomobar -edge top -thickness 6 -reserve 25m   # thicker bar, never covered
 pomobar -quiet 5m                             # short break, no notification
-pomobar 25m && pomobar -label "Break over" 5m  # work, then break
+
+pomobar status        # 12:03 left of 25:00 — Write the report
+pomobar pause         # paused with 12:03 left
+pomobar resume        # resumed with 12:03 left
+pomobar stop          # stopped with 12:03 left
+
+# work, then break, in one script
+pomobar -foreground 25m && pomobar -foreground -label "Break over" 5m
 ```
 
-Press Ctrl-C (or `kill` the process) to cancel: the bar disappears at once
-and no notification is sent.
+`pomobar status` prints the remaining time as `m:ss` (or `h:mm:ss`),
+`(paused)` when paused, and the label; with no timer running it prints an
+error and exits 1, which makes it easy to use in a status bar.
 
 ### Exit status
 
 | Code | Meaning |
 |---|---|
-| 0 | The timer completed (also `-version`, `-h`). A failed notification is only a warning. |
-| 1 | Error: no Wayland session, cannot connect, no wlr-layer-shell, or the compositor closed the bar (e.g. its monitor was unplugged). |
-| 2 | Invalid usage (bad duration, unknown edge, thickness < 1, extra arguments). |
-| 130 | Cancelled with SIGINT (Ctrl-C). |
-| 143 | Cancelled with SIGTERM. |
+| 0 | Success: the timer started (or, with `-foreground`, completed), or a client command succeeded. A failed notification is only a warning. |
+| 1 | Error: no Wayland session, cannot connect, no wlr-layer-shell, the compositor closed the bar (e.g. its monitor was unplugged), a timer is already running, or no timer is running for `status`/`stop`/`pause`/`resume` (also pausing a paused timer or resuming a running one). |
+| 2 | Invalid usage (bad duration, unknown edge, thickness < 1, extra arguments, flags given to a client command). |
+| 3 | `-foreground` only: stopped with `pomobar stop`. |
+| 130 | `-foreground` only: cancelled with SIGINT (Ctrl-C). |
+| 143 | `-foreground` only: cancelled with SIGTERM. |
+
+A cancelled timer never sends a notification.
 
 ## Behaviour notes
 
@@ -90,16 +111,20 @@ and no notification is sent.
   laptop suspended counts: a 25 m timer ends 25 minutes after it started,
   within a second of resuming if the deadline passed during the suspend.
   Changing the system clock moves the deadline too.
+- **Pause.** A paused timer keeps its remaining time; suspend while paused
+  does not count. Resuming continues from where it stopped.
 - **Redraws.** pomobar wakes once a second and only redraws when the bar
   changes by at least one pixel or its color visibly changes.
+- **Control socket.** The running timer listens on
+  `$XDG_RUNTIME_DIR/pomobar.sock` (private to your user). A socket left by
+  a crashed timer is replaced automatically.
 
 ## Limitations
 
 - **Single monitor.** The bar appears on the output the compositor picks
   (usually the focused one); there is no `-output` option yet.
-- **No daemon.** Each pomobar process is one timer. There is no
-  pause/resume, status query or pomodoro cycle; chain commands in the shell
-  instead. Running two at once shows two bars.
+- **One timer at a time**, per user session. There are no pomodoro cycles;
+  chain `-foreground` timers in the shell instead.
 - **Integer scaling only.** On fractionally scaled outputs the bar is
   rendered at the integer scale the compositor advertises and resampled by
   the compositor, so its edges may be slightly soft.

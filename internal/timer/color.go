@@ -79,3 +79,8 @@ func FilledLength(fraction float64, length int) int {
 	}
 	return int(math.Round(fraction * float64(length)))
 }
+
+// Dim returns c at half opacity (premultiplied), used while paused.
+func Dim(c color.RGBA) color.RGBA {
+	return color.RGBA{c.R / 2, c.G / 2, c.B / 2, c.A / 2}
+}

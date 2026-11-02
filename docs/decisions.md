@@ -98,8 +98,40 @@ once even if the bus is slow.
 | No `$WAYLAND_DISPLAY`, connection failure, no layer-shell, protocol error | 1 | no |
 | Compositor sent `closed` for the bar (e.g. its output went away) | 1 | no |
 | Invalid usage | 2 | no |
+| `-foreground` timer stopped with `pomobar stop` | 3 | no |
 | SIGINT (Ctrl-C) | 130 | no |
 | SIGTERM | 143 | no |
 
 `closed` exits 1 because the timer did not complete and pomobar cannot show
 it any more; the user should notice rather than mistake it for success.
+
+## D6 — Background timer and client commands
+
+`pomobar <duration>` no longer blocks the terminal. It validates the
+arguments, refuses if a timer is already running, and re-executes itself
+as `pomobar -foreground <args>` in a new session (`setsid`, stdio on
+`/dev/null`, cwd `/`). The child reports on an inherited pipe (fd 3,
+named by `POMOBAR_READY_FD`) either `OK` once its control socket is
+listening and the bar is mapped, or `ERR <message>`; the parent prints the
+message and exits 1, or exits 0. Errors such as a missing layer-shell are
+therefore still reported in the terminal that started the timer.
+
+The timer process listens on `$XDG_RUNTIME_DIR/pomobar.sock`. Each
+connection carries one JSON request line (`{"cmd":"status"}`) and one JSON
+response line with `ok`, `error` and the timer `state` (duration,
+remaining, paused, label). Requests are handed to the countdown loop over
+a channel, so the timer state is only touched by that goroutine.
+
+- **One timer at a time.** Claiming the socket is the lock: if a live
+  timer answers on it, a new one refuses with its status ("a timer is
+  already running (12:03 left of 25:00); use "pomobar stop" first"). A
+  socket nobody answers on is stale and is replaced.
+- **Commands:** `status`, `stop` (no notification), `pause`, `resume`.
+  Pausing freezes the remaining time; resuming sets a new wall-clock
+  deadline of now + remaining, so suspend while paused does not count. The
+  bar is drawn at half opacity while paused.
+- **`-foreground`** keeps the old blocking behaviour for scripts; that
+  process also serves the control socket, and exits 3 when stopped by a
+  client.
+- The detached process has no terminal, so notification warnings are not
+  shown anywhere. Logging to the journal is possible future work.

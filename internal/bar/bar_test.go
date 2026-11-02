@@ -380,3 +380,23 @@ func TestColorChangeRedraws(t *testing.T) {
 		t.Fatalf("frames = %d, want 2", n)
 	}
 }
+
+func TestSyncAfterDraw(t *testing.T) {
+	s := startServer(t, fakewl.Options{})
+	b := openBar(t, s, Options{Thickness: 4})
+	if err := b.Draw(1, green); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	// No waiting: the frame must already have reached the compositor.
+	if st := s.Snapshot(); len(st.Frames) != 1 {
+		t.Fatalf("frames after Sync = %d, want 1", len(st.Frames))
+	}
+	_ = s.SendClosed()
+	<-b.Done()
+	if err := b.Sync(); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Sync after closed = %v", err)
+	}
+}

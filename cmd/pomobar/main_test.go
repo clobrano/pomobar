@@ -28,6 +28,14 @@ func TestParseArgs(t *testing.T) {
 			want: config{duration: 90 * time.Minute, edge: bar.Top, thickness: 6, reserve: true, label: "x", quiet: true}},
 		{args: "90s -edge left", want: config{duration: 90 * time.Second, edge: bar.Left, thickness: 4}},
 		{args: "-version", want: config{edge: bar.Bottom, thickness: 4, version: true}},
+		{args: "-foreground 5m", want: config{duration: 5 * time.Minute, edge: bar.Bottom, thickness: 4, foreground: true}},
+		{args: "status", want: config{edge: bar.Bottom, thickness: 4, cmd: "status"}},
+		{args: "stop", want: config{edge: bar.Bottom, thickness: 4, cmd: "stop"}},
+		{args: "pause", want: config{edge: bar.Bottom, thickness: 4, cmd: "pause"}},
+		{args: "resume", want: config{edge: bar.Bottom, thickness: 4, cmd: "resume"}},
+		{args: "status now", wantErr: "unexpected arguments: now"},
+		{args: "-edge top stop", wantErr: "stop takes no flags (got -edge)"},
+		{args: "25m stop", wantErr: "unexpected arguments: stop"},
 		{args: "", wantErr: "missing duration"},
 		{args: "25m 5m", wantErr: "unexpected arguments: 5m"},
 		{args: "0s", wantErr: "must be positive"},
@@ -77,6 +85,7 @@ func (f *fakeBar) Draw(fr float64, c color.RGBA) error {
 	f.colors = append(f.colors, c)
 	return f.drawErr
 }
+func (f *fakeBar) Sync() error           { return nil }
 func (f *fakeBar) Done() <-chan struct{} { return f.done }
 func (f *fakeBar) Err() error            { return f.err }
 func (f *fakeBar) Close() error {
@@ -121,7 +130,7 @@ func TestUsageErrorsExit2(t *testing.T) {
 		if code := run(args, d); code != exitUsage {
 			t.Errorf("run(%q) = %d, want 2", args, code)
 		}
-		if !strings.Contains(errb.String(), "Usage: pomobar") {
+		if !strings.Contains(errb.String(), "Usage:\n  pomobar [flags] <duration>") {
 			t.Errorf("run(%q) did not print usage", args)
 		}
 	}
@@ -157,7 +166,7 @@ func TestCountdownDrawsShrinkingBarAndColors(t *testing.T) {
 	clk := &fakeClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), step: time.Minute}
 	b := newFakeBar()
 	d, _, _ := testDeps(b, clk.now)
-	if code := run([]string{"-edge", "right", "-reserve", "-thickness", "3", "10m"}, d); code != exitOK {
+	if code := run([]string{"-foreground", "-edge", "right", "-reserve", "-thickness", "3", "10m"}, d); code != exitOK {
 		t.Fatalf("exit %d", code)
 	}
 	if b.opts != (bar.Options{Edge: bar.Right, Thickness: 3, Reserve: true}) {
@@ -197,7 +206,7 @@ func TestCountdownEndsAfterSuspend(t *testing.T) {
 	d, _, _ := testDeps(b, now)
 	d.tick = 10 * time.Millisecond
 	begin := time.Now()
-	if code := run([]string{"25m"}, d); code != exitOK {
+	if code := run([]string{"-foreground", "25m"}, d); code != exitOK {
 		t.Fatalf("exit %d", code)
 	}
 	if el := time.Since(begin); el > time.Second {
@@ -210,7 +219,7 @@ func TestBarClosedByCompositorExits1(t *testing.T) {
 	b.err = bar.ErrClosed
 	close(b.done)
 	d, _, errb := testDeps(b, time.Now)
-	if code := run([]string{"1h"}, d); code != exitError {
+	if code := run([]string{"-foreground", "1h"}, d); code != exitError {
 		t.Fatalf("exit %d, want 1", code)
 	}
 	if !strings.Contains(errb.String(), "closed the bar") || !b.closed {
@@ -230,7 +239,7 @@ func TestOpenErrorExits1(t *testing.T) {
 			notifier: n,
 			now:      time.Now, tick: time.Second, stdout: &bytes.Buffer{}, stderr: &errb,
 		}
-		if code := run([]string{"25m"}, d); code != exitError {
+		if code := run([]string{"-foreground", "25m"}, d); code != exitError {
 			t.Fatalf("exit %d, want 1", code)
 		}
 		if got := errb.String(); got != "pomobar: "+err.Error()+"\n" {
@@ -260,7 +269,7 @@ func TestEndToEndFakeCompositor(t *testing.T) {
 	d.stderr = &errb
 	d.tick = 100 * time.Millisecond
 	start := time.Now()
-	if code := run([]string{"-edge", "top", "-label", "Break time", "1500ms"}, d); code != exitOK {
+	if code := run([]string{"-foreground", "-edge", "top", "-label", "Break time", "1500ms"}, d); code != exitOK {
 		t.Fatalf("exit %d: %s", code, errb.String())
 	}
 	late := time.Since(start) - 1500*time.Millisecond
@@ -275,8 +284,8 @@ func TestEndToEndFakeCompositor(t *testing.T) {
 		t.Fatalf("destroyed=%v frames=%d err=%q", st.Layer.Destroyed, len(st.Frames), st.ProtocolError)
 	}
 	first := st.Frames[0]
-	if first.Width != 400 || first.Pixel(399, 0) != 0xFF4CAF50 {
-		t.Fatalf("first frame %dx%d px=%#x", first.Width, first.Height, first.Pixel(399, 0))
+	if first.Width != 400 || first.Pixel(0, 0) != 0xFF4CAF50 || first.Pixel(390, 0) != 0xFF4CAF50 {
+		t.Fatalf("first frame %dx%d px=%#x", first.Width, first.Height, first.Pixel(390, 0))
 	}
 	calls := srv.Wait(1, 5*time.Second)
 	if len(calls) != 1 || calls[0].AppName != "pomobar" || calls[0].Summary != "Time's up" || calls[0].Body != "Break time" {
@@ -308,7 +317,7 @@ func TestLongRun(t *testing.T) {
 	d := defaultDeps()
 	start := time.Now()
 	wallStart := start.Round(0)
-	if code := run([]string{"-quiet", v}, d); code != exitOK {
+	if code := run([]string{"-foreground", "-quiet", v}, d); code != exitOK {
 		t.Fatalf("exit %d", code)
 	}
 	end := time.Now().Round(0)
@@ -336,7 +345,7 @@ func TestNotificationAtEnd(t *testing.T) {
 	for _, c := range cases {
 		b := newFakeBar()
 		d, _, errb := testDeps(b, fastClock())
-		if code := run(c.args, d); code != exitOK {
+		if code := run(append([]string{"-foreground"}, c.args...), d); code != exitOK {
 			t.Fatalf("%q: exit %d: %s", c.args, code, errb)
 		}
 		n := d.notifier.(*fakeNotifier)
@@ -352,7 +361,7 @@ func TestNotificationAtEnd(t *testing.T) {
 func TestNotificationFailureKeepsExit0(t *testing.T) {
 	d, _, errb := testDeps(newFakeBar(), fastClock())
 	d.notifier = &fakeNotifier{err: errors.New("no server\non the bus")}
-	if code := run([]string{"5m"}, d); code != exitOK {
+	if code := run([]string{"-foreground", "5m"}, d); code != exitOK {
 		t.Fatalf("exit %d", code)
 	}
 	if got := errb.String(); got != "pomobar: warning: notification failed: no server on the bus\n" {
@@ -367,7 +376,7 @@ func TestSignalsCancel(t *testing.T) {
 		ch := make(chan os.Signal, 1)
 		ch <- sig
 		d.signals = ch
-		if code := run([]string{"25m"}, d); code != want {
+		if code := run([]string{"-foreground", "25m"}, d); code != want {
 			t.Errorf("%v: exit %d, want %d", sig, code, want)
 		}
 		if !b.closed {

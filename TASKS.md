@@ -135,6 +135,21 @@ still need manual verification on KDE Plasma (and GNOME for layer-shell).
 - [ ] GitHub release has linux/amd64 and linux/arm64 binaries.
 - [ ] Full M1–M3 acceptance re-run on KDE Plasma Wayland with the release binary.
 
+## M5 — Background timer and client commands
+
+Requested after the MVP review: the timer should not block the terminal.
+
+- [x] **T5.1** `pomobar <duration>` starts the timer in a detached process (re-exec with `-foreground`, `setsid`) and returns once the bar is shown; start errors are reported by the parent via a readiness pipe.
+- [x] **T5.2** Control socket `$XDG_RUNTIME_DIR/pomobar.sock` with a one-line JSON protocol (`internal/ipc`); stale sockets are replaced.
+- [x] **T5.3** Client commands `status`, `stop`, `pause`, `resume`; clear errors and exit 1 when no timer runs.
+- [x] **T5.4** Refuse a second start while a timer runs, showing its status.
+- [x] **T5.5** Pause/resume in `internal/timer` (frozen remaining time, new wall-clock deadline on resume); dimmed bar while paused.
+- [x] **T5.6** Keep `-foreground` for scripts (exit 3 when stopped by a client).
+- [x] **T5.7** Tests: ipc unit tests; process tests for detach, status, refusal, pause/resume (dimmed pixels), stop, completion with notification, foreground stopped by client, commands without a timer.
+
+### M5 acceptance
+- [ ] On KDE Plasma: `pomobar 25m` returns immediately, the bar stays after closing the terminal, and `status`/`pause`/`resume`/`stop` act on it.
+
 ## Open questions to resolve
 
 - [x] Go Wayland library choice (T1.1, decide in M1): `vcaesar/go-wayland`, see `docs/decisions.md`.
@@ -144,6 +159,6 @@ still need manual verification on KDE Plasma (and GNOME for layer-shell).
 
 ## Out of scope for the MVP (future work)
 
-Monitor selection (`-output`) and per-monitor bars; daemon with
-pause/resume/stop/status and a tmux segment; pomodoro cycles; config file;
+Monitor selection (`-output`) and per-monitor bars; a tmux segment
+(`pomobar status` covers the basics); pomodoro cycles; config file;
 end sound; fractional scaling via `wp_viewporter` + fractional-scale.

@@ -217,3 +217,42 @@ func TestFilledLength(t *testing.T) {
 		}
 	}
 }
+
+func TestPauseResume(t *testing.T) {
+	tm, _ := New(10*time.Minute, t0)
+	if tm.Resume(t0) {
+		t.Fatal("Resume of a running timer succeeded")
+	}
+	if !tm.Pause(t0.Add(4 * time.Minute)) {
+		t.Fatal("Pause failed")
+	}
+	if tm.Pause(t0.Add(5*time.Minute)) || !tm.Paused() {
+		t.Fatal("second Pause succeeded or timer not paused")
+	}
+	// Time passes while paused (including a suspend): nothing changes.
+	later := t0.Add(2 * time.Hour)
+	if got := tm.Remaining(later); got != 6*time.Minute {
+		t.Fatalf("Remaining while paused = %v, want 6m", got)
+	}
+	if tm.Done(later) || tm.Fraction(later) != 0.6 {
+		t.Fatalf("paused timer: done=%v fraction=%v", tm.Done(later), tm.Fraction(later))
+	}
+	if !tm.Resume(later) || tm.Paused() {
+		t.Fatal("Resume failed")
+	}
+	if got := tm.Remaining(later.Add(time.Minute)); got != 5*time.Minute {
+		t.Fatalf("Remaining after resume = %v, want 5m", got)
+	}
+	if !tm.Done(later.Add(6 * time.Minute)) {
+		t.Fatal("not done 6m after resume")
+	}
+	if tm.Pause(later.Add(7 * time.Minute)) {
+		t.Fatal("Pause of a finished timer succeeded")
+	}
+}
+
+func TestDim(t *testing.T) {
+	if got := Dim(Green); got != (color.RGBA{0x26, 0x57, 0x28, 0x7F}) {
+		t.Fatalf("Dim(Green) = %v", got)
+	}
+}

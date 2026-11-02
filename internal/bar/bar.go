@@ -515,6 +515,32 @@ func (b *Bar) Close() error {
 	return err
 }
 
+// Sync waits (bounded by teardownTimeout) until the compositor has
+// processed every request sent so far, e.g. so a committed frame is on
+// screen before the caller reports success.
+func (b *Bar) Sync() error {
+	b.mu.Lock()
+	if b.closing || b.err != nil {
+		err := b.err
+		b.mu.Unlock()
+		return err
+	}
+	synced := make(chan struct{})
+	err := b.sync(func() { close(synced) })
+	b.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	select {
+	case <-synced:
+		return nil
+	case <-b.done:
+		return b.Err()
+	case <-time.After(teardownTimeout):
+		return errors.New("the compositor did not answer in time")
+	}
+}
+
 // sync sends wl_display.sync and calls done from the dispatch goroutine
 // when the compositor answers. Unlike client.Display.Sync it installs the
 // handler before the request is sent, so the answer cannot be missed.
