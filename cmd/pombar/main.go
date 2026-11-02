@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -20,6 +21,18 @@ import (
 
 // version is set at build time with -ldflags "-X main.version=…".
 var version = "dev"
+
+// buildVersion returns the injected version or, for `go install
+// …@vX.Y.Z` builds, the module version recorded by the go command.
+func buildVersion() string {
+	if version != "dev" {
+		return version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		return bi.Main.Version
+	}
+	return version
+}
 
 // Exit codes.
 const (
@@ -175,7 +188,7 @@ func run(args []string, d deps) int {
 		return exitUsage
 	}
 	if cfg.version {
-		fmt.Fprintln(d.stdout, "pombar", version)
+		fmt.Fprintln(d.stdout, "pombar", buildVersion())
 		return exitOK
 	}
 

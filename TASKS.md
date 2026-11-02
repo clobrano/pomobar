@@ -123,11 +123,11 @@ still need manual verification on KDE Plasma (and GNOME for layer-shell).
 
 ## M4 — Release
 
-- [ ] **T4.1** README: what it is, requirements (Wayland + wlr-layer-shell), install, usage, flags table, examples, exit codes, limitations (single monitor, no daemon).
+- [x] **T4.1** README: what it is, requirements (Wayland + wlr-layer-shell), install, usage, flags table, examples, exit codes, limitations (single monitor, no daemon).
 - [ ] **T4.2** Record a demo GIF on KDE Plasma and embed it in the README.
-- [ ] **T4.3** Verify `go install github.com/clobrano/pomobar/cmd/pombar@latest` works and produces a static binary.
-- [ ] **T4.4** Release automation (GoReleaser or a tag-triggered workflow): `CGO_ENABLED=0` binaries for linux/amd64 and linux/arm64, checksums, version injected.
-- [ ] **T4.5** Add a LICENSE (and third-party notice for the vendored wlr-protocols XML if applicable).
+- [ ] **T4.3** Verify `go install github.com/clobrano/pomobar/cmd/pombar@latest` works and produces a static binary. *(Needs a tag on the default branch. Note: only static with `CGO_ENABLED=0`; with cgo available the toolchain links libc, so the README says `CGO_ENABLED=0 go install …`. `-version` reports the module version for `go install` builds.)*
+- [x] **T4.4** Release automation (GoReleaser or a tag-triggered workflow): `CGO_ENABLED=0` binaries for linux/amd64 and linux/arm64, checksums, version injected. *(`.github/workflows/release.yml` on `v*` tags runs `make dist`: static check, tar.gz with README/LICENSE/notices, `SHA256SUMS`, `gh release create`. `make dist` verified locally; the workflow itself runs on the first tag.)*
+- [x] **T4.5** Add a LICENSE (and third-party notice for the vendored wlr-protocols XML if applicable). *(MIT — confirm the choice. Nothing is vendored; `THIRD_PARTY_NOTICES.md` carries the licences of the statically linked Go runtime, go-wayland, godbus, x/sys and the Wayland/layer-shell protocol notices, and ships in the release archives.)*
 - [ ] **T4.6** Tag `v0.1.0` and publish the GitHub release.
 
 ### M4 acceptance
