@@ -23,30 +23,36 @@ Goal: a hard-coded binary that draws a 4 px green bar on the bottom edge for
 60 s, shrinking, then exits.
 
 ### Library decision
-- [ ] **T1.1** Evaluate `vcaesar/go-wayland` vs `xogas/wayland`: maintenance status, pure-Go (no cgo), scanner availability, `wl_shm`/`wl_region`/`wl_output` coverage, event-loop model. Record the decision and reasons in `docs/decisions.md` (resolves PRD open question 1).
-- [ ] **T1.2** Check whether the chosen library ships `zwlr_layer_shell_v1` bindings.
-- [ ] **T1.3** If not: vendor `wlr-layer-shell-unstable-v1.xml` from wlr-protocols (with its licence), generate bindings with the library's scanner into `internal/protocol/layershell`, and add a `go generate` directive so they can be regenerated.
+- [x] **T1.1** Evaluate `vcaesar/go-wayland` vs `xogas/wayland`: maintenance status, pure-Go (no cgo), scanner availability, `wl_shm`/`wl_region`/`wl_output` coverage, event-loop model. Record the decision and reasons in `docs/decisions.md` (resolves PRD open question 1).
+- [x] **T1.2** Check whether the chosen library ships `zwlr_layer_shell_v1` bindings.
+- [x] **T1.3** ~~If not: vendor `wlr-layer-shell-unstable-v1.xml` from wlr-protocols (with its licence), generate bindings with the library's scanner into `internal/protocol/layershell`, and add a `go generate` directive so they can be regenerated.~~ Not needed: go-wayland ships `wlr/layer-shell-v1`; the placeholder package was removed.
 
 ### Wayland plumbing (`internal/bar`)
-- [ ] **T1.4** Connect to `$WAYLAND_DISPLAY`; return a typed error if the variable is unset or the connection fails.
-- [ ] **T1.5** Registry: bind `wl_compositor`, `wl_shm`, `zwlr_layer_shell_v1` (and `wl_output` for scale). Return a distinct "layer-shell not supported" error if the global is missing.
-- [ ] **T1.6** Create `wl_surface`; call `get_layer_surface` with no output, layer `overlay`, namespace `pombar`.
-- [ ] **T1.7** Anchor bottom + left + right, size `(0, 4)`, exclusive zone `0`, keyboard interactivity `none`.
-- [ ] **T1.8** Set an empty `wl_region` as the input region (click-through).
-- [ ] **T1.9** Initial commit → wait for `configure` → `ack_configure`; handle later `configure` events (size changes) and `closed`.
-- [ ] **T1.10** shm buffer pool: `unix.MemfdCreate` + `ftruncate` + `mmap`, ARGB8888, two buffers; track `wl_buffer.release` so a busy buffer is never written.
-- [ ] **T1.11** Draw function: fill the first `length × fraction` pixels with a color, the rest with transparent zero (premultiplied ARGB).
-- [ ] **T1.12** Run the Wayland event loop on its own goroutine; expose a safe way for the main goroutine to request a redraw and to shut down.
-- [ ] **T1.13** Clean teardown: destroy layer surface, surface, buffers, unmap memory, close the connection.
+- [x] **T1.4** Connect to `$WAYLAND_DISPLAY`; return a typed error if the variable is unset or the connection fails.
+- [x] **T1.5** Registry: bind `wl_compositor`, `wl_shm`, `zwlr_layer_shell_v1` (and `wl_output` for scale). Return a distinct "layer-shell not supported" error if the global is missing.
+- [x] **T1.6** Create `wl_surface`; call `get_layer_surface` with no output, layer `overlay`, namespace `pombar`.
+- [x] **T1.7** Anchor bottom + left + right, size `(0, 4)`, exclusive zone `0`, keyboard interactivity `none`.
+- [x] **T1.8** Set an empty `wl_region` as the input region (click-through).
+- [x] **T1.9** Initial commit → wait for `configure` → `ack_configure`; handle later `configure` events (size changes) and `closed`.
+- [x] **T1.10** shm buffer pool: `unix.MemfdCreate` + `ftruncate` + `mmap`, ARGB8888, two buffers; track `wl_buffer.release` so a busy buffer is never written.
+- [x] **T1.11** Draw function: fill the first `length × fraction` pixels with a color, the rest with transparent zero (premultiplied ARGB).
+- [x] **T1.12** Run the Wayland event loop on its own goroutine; expose a safe way for the main goroutine to request a redraw and to shut down.
+- [x] **T1.13** Clean teardown: destroy layer surface, surface, buffers, unmap memory, close the connection.
 
 ### Spike binary
-- [ ] **T1.14** Temporary `cmd/pombar` main: fixed 60 s, green, bottom edge, redraw each second, exit 0.
+- [x] **T1.14** Temporary `cmd/pombar` main: fixed 60 s, green, bottom edge, redraw each second, exit 0.
 
 ### M1 acceptance (manual, on KDE Plasma Wayland)
+
+Automated coverage: `internal/bar` tests run the client against the fake
+compositor in `internal/fakewl` (overlay layer, anchors, size, empty input
+region, ack before attach, pixels, buffer reuse, resize, `closed`,
+teardown). The KDE items below still need manual verification on KDE Plasma.
+
 - [ ] Bar is visible above normal windows and above fullscreen apps.
 - [ ] Bar is visible on every virtual desktop.
 - [ ] Clicks pass through the bar to the window beneath.
-- [ ] `CGO_ENABLED=0 go build ./...` succeeds; `ldd` reports a static binary.
+- [x] `CGO_ENABLED=0 go build ./...` succeeds; `ldd` reports a static binary (verified for linux/amd64; `file` confirms linux/arm64 is statically linked).
 - [ ] If overlay misbehaves on KDE, switch to the `top` layer and note it in `docs/decisions.md` (PRD risk).
 
 ## M2 — CLI and timer
@@ -119,7 +125,7 @@ Goal: a hard-coded binary that draws a 4 px green bar on the bottom edge for
 
 ## Open questions to resolve
 
-- [ ] Go Wayland library choice (T1.1, decide in M1).
+- [x] Go Wayland library choice (T1.1, decide in M1): `vcaesar/go-wayland`, see `docs/decisions.md`.
 - [ ] Should the bar flash/pulse at zero before disappearing?
 - [ ] Should a second pombar replace a running one, or coexist?
 - [ ] Binary/repo name: `pombar` vs `pomobar`.
