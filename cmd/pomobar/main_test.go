@@ -121,7 +121,7 @@ func TestUsageErrorsExit2(t *testing.T) {
 		if code := run(args, d); code != exitUsage {
 			t.Errorf("run(%q) = %d, want 2", args, code)
 		}
-		if !strings.Contains(errb.String(), "Usage: pombar") {
+		if !strings.Contains(errb.String(), "Usage: pomobar") {
 			t.Errorf("run(%q) did not print usage", args)
 		}
 	}
@@ -133,7 +133,7 @@ func TestHelpAndVersion(t *testing.T) {
 		t.Fatalf("-h: code %d output %q", code, out.String())
 	}
 	d, out, _ = testDeps(newFakeBar(), time.Now)
-	if code := run([]string{"-version"}, d); code != exitOK || out.String() != "pombar dev\n" {
+	if code := run([]string{"-version"}, d); code != exitOK || out.String() != "pomobar dev\n" {
 		t.Fatalf("-version: code %d output %q", code, out.String())
 	}
 }
@@ -233,7 +233,7 @@ func TestOpenErrorExits1(t *testing.T) {
 		if code := run([]string{"25m"}, d); code != exitError {
 			t.Fatalf("exit %d, want 1", code)
 		}
-		if got := errb.String(); got != "pombar: "+err.Error()+"\n" {
+		if got := errb.String(); got != "pomobar: "+err.Error()+"\n" {
 			t.Fatalf("stderr %q", got)
 		}
 		if len(n.bodies) != 0 {
@@ -279,20 +279,20 @@ func TestEndToEndFakeCompositor(t *testing.T) {
 		t.Fatalf("first frame %dx%d px=%#x", first.Width, first.Height, first.Pixel(399, 0))
 	}
 	calls := srv.Wait(1, 5*time.Second)
-	if len(calls) != 1 || calls[0].AppName != "pombar" || calls[0].Summary != "Time's up" || calls[0].Body != "Break time" {
+	if len(calls) != 1 || calls[0].AppName != "pomobar" || calls[0].Summary != "Time's up" || calls[0].Body != "Break time" {
 		t.Fatalf("notifications: %+v", calls)
 	}
 }
 
-// TestLongRun runs a real timer of $POMBAR_LONG_RUN (e.g. 25m) against the
+// TestLongRun runs a real timer of $POMOBAR_LONG_RUN (e.g. 25m) against the
 // fake compositor and checks it ends within one second of the wall-clock
 // deadline. Skipped unless the variable is set:
 //
-//	POMBAR_LONG_RUN=25m go test -run TestLongRun -timeout 30m -v ./cmd/pombar
+//	POMOBAR_LONG_RUN=25m go test -run TestLongRun -timeout 30m -v ./cmd/pomobar
 func TestLongRun(t *testing.T) {
-	v := os.Getenv("POMBAR_LONG_RUN")
+	v := os.Getenv("POMOBAR_LONG_RUN")
 	if v == "" {
-		t.Skip("set POMBAR_LONG_RUN to a duration to run")
+		t.Skip("set POMOBAR_LONG_RUN to a duration to run")
 	}
 	dur, err := time.ParseDuration(v)
 	if err != nil {
@@ -355,7 +355,7 @@ func TestNotificationFailureKeepsExit0(t *testing.T) {
 	if code := run([]string{"5m"}, d); code != exitOK {
 		t.Fatalf("exit %d", code)
 	}
-	if got := errb.String(); got != "pombar: warning: notification failed: no server on the bus\n" {
+	if got := errb.String(); got != "pomobar: warning: notification failed: no server on the bus\n" {
 		t.Fatalf("stderr %q", got)
 	}
 }

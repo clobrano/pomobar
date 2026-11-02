@@ -1,6 +1,6 @@
 # Third-party notices
 
-Release binaries of pombar statically link the following software. Their
+Release binaries of pomobar statically link the following software. Their
 licenses require these notices to accompany binary distributions.
 
 ## Go standard library and runtime

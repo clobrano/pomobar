@@ -20,7 +20,7 @@ func TestNotifyOnRealSessionBus(t *testing.T) {
 		t.Fatalf("got %d notifications, want 1", len(calls))
 	}
 	n := calls[0]
-	if n.AppName != "pombar" || n.Summary != "Time's up" || n.Body != "Write the report" {
+	if n.AppName != "pomobar" || n.Summary != "Time's up" || n.Body != "Write the report" {
 		t.Errorf("app/summary/body = %q/%q/%q", n.AppName, n.Summary, n.Body)
 	}
 	if n.ReplacesID != 0 || n.ExpireTimeout != ExpireTimeout || len(n.Actions) != 0 {

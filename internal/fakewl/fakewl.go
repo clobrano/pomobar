@@ -1,5 +1,5 @@
 // Package fakewl is a minimal in-process Wayland compositor used to test
-// pombar without a real compositor. It speaks the wire protocol over a unix
+// pomobar without a real compositor. It speaks the wire protocol over a unix
 // socket and implements just enough of wl_display, wl_registry,
 // wl_compositor, wl_surface, wl_region, wl_shm, wl_shm_pool, wl_buffer,
 // wl_output and zwlr_layer_shell_v1 to map a layer surface, receive shm

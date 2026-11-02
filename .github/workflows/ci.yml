@@ -39,6 +39,6 @@ jobs:
           CGO_ENABLED: "0"
           GOOS: linux
           GOARCH: ${{ matrix.goarch }}
-        run: go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_SHA::12}" -o pombar-linux-${{ matrix.goarch }} ./cmd/pombar
+        run: go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_SHA::12}" -o pomobar-linux-${{ matrix.goarch }} ./cmd/pomobar
       - name: Check binary is static
-        run: file pombar-linux-${{ matrix.goarch }} | tee /dev/stderr | grep -q 'statically linked'
+        run: file pomobar-linux-${{ matrix.goarch }} | tee /dev/stderr | grep -q 'statically linked'

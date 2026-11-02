@@ -1,18 +1,17 @@
-# pombar — Task list
+# pomobar — Task list
 
 Derived from the pombar PRD (Oct 26, 2026). Tasks are grouped by milestone, in
 the order they should be done. Each milestone ends with its acceptance
 criteria as a checklist; the MVP is done when M1–M4 all pass on KDE Plasma
 Wayland.
 
-> Naming: the PRD calls the binary `pombar`, the repository is `pomobar`.
-> Decide the final name (module path, binary, D-Bus app name, layer-shell
-> namespace) before T0.1.
+> Naming: the PRD called the binary `pombar`; the final name is `pomobar`
+> everywhere (module path, binary, D-Bus app name, layer-shell namespace).
 
 ## M0 — Project bootstrap
 
 - [x] **T0.1** Initialise the Go module (`go mod init github.com/clobrano/pomobar`), pick a Go version, add `.gitignore` entries for build output.
-- [x] **T0.2** Create the package skeleton: `cmd/pombar`, `internal/timer`, `internal/bar`, `internal/notify`, `internal/protocol/layershell` (placeholder).
+- [x] **T0.2** Create the package skeleton: `cmd/pomobar`, `internal/timer`, `internal/bar`, `internal/notify`, `internal/protocol/layershell` (placeholder).
 - [x] **T0.3** Add a `Makefile` (or `justfile`) with `build` (`CGO_ENABLED=0`), `test`, `vet`, `lint` targets.
 - [x] **T0.4** CI workflow (GitHub Actions): `go vet`, `go test ./...`, and a `CGO_ENABLED=0` build for linux/amd64 and linux/arm64 on every push/PR.
 - [x] **T0.5** Inject version via `-ldflags "-X main.version=…"` so `-version` has something to print later.
@@ -30,7 +29,7 @@ Goal: a hard-coded binary that draws a 4 px green bar on the bottom edge for
 ### Wayland plumbing (`internal/bar`)
 - [x] **T1.4** Connect to `$WAYLAND_DISPLAY`; return a typed error if the variable is unset or the connection fails.
 - [x] **T1.5** Registry: bind `wl_compositor`, `wl_shm`, `zwlr_layer_shell_v1` (and `wl_output` for scale). Return a distinct "layer-shell not supported" error if the global is missing.
-- [x] **T1.6** Create `wl_surface`; call `get_layer_surface` with no output, layer `overlay`, namespace `pombar`.
+- [x] **T1.6** Create `wl_surface`; call `get_layer_surface` with no output, layer `overlay`, namespace `pomobar`.
 - [x] **T1.7** Anchor bottom + left + right, size `(0, 4)`, exclusive zone `0`, keyboard interactivity `none`.
 - [x] **T1.8** Set an empty `wl_region` as the input region (click-through).
 - [x] **T1.9** Initial commit → wait for `configure` → `ack_configure`; handle later `configure` events (size changes) and `closed`.
@@ -40,7 +39,7 @@ Goal: a hard-coded binary that draws a 4 px green bar on the bottom edge for
 - [x] **T1.13** Clean teardown: destroy layer surface, surface, buffers, unmap memory, close the connection.
 
 ### Spike binary
-- [x] **T1.14** Temporary `cmd/pombar` main: fixed 60 s, green, bottom edge, redraw each second, exit 0.
+- [x] **T1.14** Temporary `cmd/pomobar` main: fixed 60 s, green, bottom edge, redraw each second, exit 0.
 
 ### M1 acceptance (manual, on KDE Plasma Wayland)
 
@@ -63,7 +62,7 @@ teardown). The KDE items below still need manual verification on KDE Plasma.
 - [x] **T2.3** `FilledLength(fraction, length)` helper (integer pixels) used for "changed by ≥ 1 px" checks.
 - [x] **T2.4** Unit tests: fraction at start/middle/end/past deadline, zero/negative durations rejected, color at and around each threshold, interpolation monotonicity, filled-length rounding.
 
-### CLI (`cmd/pombar`)
+### CLI (`cmd/pomobar`)
 - [x] **T2.5** Parse flags with the standard `flag` package: `-edge`, `-thickness`, `-reserve`, `-label`, `-quiet`, `-version`; positional `<duration>` via `time.ParseDuration`.
 - [x] **T2.6** Validate: missing/extra args, non-positive duration, unknown edge, thickness < 1. Print usage and exit 2 on invalid usage.
 - [x] **T2.7** Usage text matching the PRD examples.
@@ -87,7 +86,7 @@ the suspend. The main loop wakes at least once per second (Go timers are
 monotonic), so after a resume the timer ends within one tick.
 
 - [ ] All four edges render correctly and shrink in the documented direction. *(Verified against the fake compositor — anchors, sizes, pixels — in `internal/bar`; needs an on-screen check on KDE Plasma.)*
-- [x] A 25 m timer ends within 1 s of wall-clock time. *(Real 25 m run against the fake compositor with `POMBAR_LONG_RUN=25m go test -run TestLongRun ./cmd/pombar`: ended 0.6 ms after the wall-clock deadline, 1500 frames. M2 code; M3/M4 did not change the countdown loop.)*
+- [x] A 25 m timer ends within 1 s of wall-clock time. *(Real 25 m run against the fake compositor with `POMOBAR_LONG_RUN=25m go test -run TestLongRun ./cmd/pomobar`: ended 0.6 ms after the wall-clock deadline, 1500 frames. M2 code; M3/M4 did not change the countdown loop.)*
 - [ ] Same, with a laptop suspend/resume in the middle (verify the monotonic clock behaviour across suspend on Linux; if it pauses, compare against wall clock and fix). *(Fixed by design: wall-clock deadline; simulated in `TestCountdownEndsAfterSuspend`. Needs a real suspend/resume on a laptop.)*
 - [x] `go test ./internal/timer` covers fraction and color math (100 % statement coverage).
 
@@ -95,9 +94,9 @@ monotonic), so after a resume the timer ends within one tick.
 
 ### `internal/notify`
 - [x] **T3.1** Add `github.com/godbus/dbus/v5`; connect to the session bus.
-- [x] **T3.2** Call `org.freedesktop.Notifications.Notify` with app name `pombar`, summary `Time's up`, body = label, sensible timeout.
+- [x] **T3.2** Call `org.freedesktop.Notifications.Notify` with app name `pomobar`, summary `Time's up`, body = label, sensible timeout.
 - [x] **T3.3** On failure, log a one-line warning to stderr; never change the exit code.
-- [x] **T3.4** Interface so `cmd/pombar` can be tested with a fake notifier.
+- [x] **T3.4** Interface so `cmd/pomobar` can be tested with a fake notifier.
 
 ### End, cancel and errors
 - [x] **T3.5** End of timer: send notification (unless `-quiet`), remove the bar, exit 0. (The bar is removed first, then the notification is sent; see `docs/decisions.md` D4.)
@@ -110,7 +109,7 @@ monotonic), so after a resume the timer ends within one tick.
 ### M3 acceptance
 
 Automated coverage: `internal/notify` against a real `dbus-daemon` session
-bus with a fake notification server; `cmd/pombar` process tests send real
+bus with a fake notification server; `cmd/pomobar` process tests send real
 SIGINT/SIGTERM to the binary (exit 130/143, bar torn down, no notification)
 and check the exit-1 paths against the fake compositor. The items below
 still need manual verification on KDE Plasma (and GNOME for layer-shell).
@@ -125,7 +124,7 @@ still need manual verification on KDE Plasma (and GNOME for layer-shell).
 
 - [x] **T4.1** README: what it is, requirements (Wayland + wlr-layer-shell), install, usage, flags table, examples, exit codes, limitations (single monitor, no daemon).
 - [ ] **T4.2** Record a demo GIF on KDE Plasma and embed it in the README.
-- [ ] **T4.3** Verify `go install github.com/clobrano/pomobar/cmd/pombar@latest` works and produces a static binary. *(Needs a tag on the default branch. Note: only static with `CGO_ENABLED=0`; with cgo available the toolchain links libc, so the README says `CGO_ENABLED=0 go install …`. `-version` reports the module version for `go install` builds.)*
+- [ ] **T4.3** Verify `go install github.com/clobrano/pomobar/cmd/pomobar@latest` works and produces a static binary. *(Needs a tag on the default branch. Note: only static with `CGO_ENABLED=0`; with cgo available the toolchain links libc, so the README says `CGO_ENABLED=0 go install …`. `-version` reports the module version for `go install` builds.)*
 - [x] **T4.4** Release automation (GoReleaser or a tag-triggered workflow): `CGO_ENABLED=0` binaries for linux/amd64 and linux/arm64, checksums, version injected. *(`.github/workflows/release.yml` on `v*` tags runs `make dist`: static check, tar.gz with README/LICENSE/notices, `SHA256SUMS`, `gh release create`. `make dist` verified locally; the workflow itself runs on the first tag.)*
 - [x] **T4.5** Add a LICENSE (and third-party notice for the vendored wlr-protocols XML if applicable). *(MIT — confirm the choice. Nothing is vendored; `THIRD_PARTY_NOTICES.md` carries the licences of the statically linked Go runtime, go-wayland, godbus, x/sys and the Wayland/layer-shell protocol notices, and ships in the release archives.)*
 - [ ] **T4.6** Tag `v0.1.0` and publish the GitHub release.
@@ -140,8 +139,8 @@ still need manual verification on KDE Plasma (and GNOME for layer-shell).
 
 - [x] Go Wayland library choice (T1.1, decide in M1): `vcaesar/go-wayland`, see `docs/decisions.md`.
 - [ ] Should the bar flash/pulse at zero before disappearing?
-- [ ] Should a second pombar replace a running one, or coexist?
-- [ ] Binary/repo name: `pombar` vs `pomobar`.
+- [ ] Should a second pomobar replace a running one, or coexist?
+- [x] Binary/repo name: `pombar` vs `pomobar` → `pomobar`.
 
 ## Out of scope for the MVP (future work)
 

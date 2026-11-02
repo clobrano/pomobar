@@ -14,22 +14,22 @@ import (
 	"github.com/clobrano/pomobar/internal/fakewl"
 )
 
-// TestMain lets the test binary act as the pombar binary, so tests can
+// TestMain lets the test binary act as the pomobar binary, so tests can
 // check real exit codes and real signal handling.
 func TestMain(m *testing.M) {
-	if os.Getenv("POMBAR_RUN_MAIN") == "1" {
-		os.Args = append([]string{"pombar"}, strings.Split(os.Getenv("POMBAR_ARGS"), "\x1f")...)
+	if os.Getenv("POMOBAR_RUN_MAIN") == "1" {
+		os.Args = append([]string{"pomobar"}, strings.Split(os.Getenv("POMOBAR_ARGS"), "\x1f")...)
 		main()
 		os.Exit(0)
 	}
 	os.Exit(m.Run())
 }
 
-// pombarCmd builds a command running main with args and extra env.
-func pombarCmd(t *testing.T, env []string, args ...string) (*exec.Cmd, *bytes.Buffer) {
+// pomobarCmd builds a command running main with args and extra env.
+func pomobarCmd(t *testing.T, env []string, args ...string) (*exec.Cmd, *bytes.Buffer) {
 	t.Helper()
 	cmd := exec.Command(os.Args[0])
-	cmd.Env = append(os.Environ(), "POMBAR_RUN_MAIN=1", "POMBAR_ARGS="+strings.Join(args, "\x1f"))
+	cmd.Env = append(os.Environ(), "POMOBAR_RUN_MAIN=1", "POMOBAR_ARGS="+strings.Join(args, "\x1f"))
 	cmd.Env = append(cmd.Env, env...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -61,7 +61,7 @@ func TestProcessSignals(t *testing.T) {
 			defer s.Close()
 			srv := dbustest.StartNotificationServer(t, dbustest.StartBus(t))
 
-			cmd, stderr := pombarCmd(t, []string{"XDG_RUNTIME_DIR=" + s.Dir(), "WAYLAND_DISPLAY=" + s.Name()}, "-label", "x", "25m")
+			cmd, stderr := pomobarCmd(t, []string{"XDG_RUNTIME_DIR=" + s.Dir(), "WAYLAND_DISPLAY=" + s.Name()}, "-label", "x", "25m")
 			if err := cmd.Start(); err != nil {
 				t.Fatal(err)
 			}
@@ -109,17 +109,17 @@ func TestProcessErrors(t *testing.T) {
 		stdout string
 	}{
 		{"no WAYLAND_DISPLAY", []string{"WAYLAND_DISPLAY="}, []string{"25m"}, 1,
-			"pombar: WAYLAND_DISPLAY is not set: not running in a Wayland session\n", ""},
+			"pomobar: WAYLAND_DISPLAY is not set: not running in a Wayland session\n", ""},
 		{"no layer-shell", []string{"XDG_RUNTIME_DIR=" + noLS.Dir(), "WAYLAND_DISPLAY=" + noLS.Name()}, []string{"25m"}, 1,
-			"pombar: the compositor does not support wlr-layer-shell (zwlr_layer_shell_v1)\n", ""},
+			"pomobar: the compositor does not support wlr-layer-shell (zwlr_layer_shell_v1)\n", ""},
 		{"no compositor", []string{"XDG_RUNTIME_DIR=" + t.TempDir(), "WAYLAND_DISPLAY=wayland-9"}, []string{"25m"}, 1,
-			"pombar: cannot connect to the Wayland compositor: ", ""},
-		{"usage", nil, []string{"-edge", "middle", "25m"}, 2, "pombar: unknown edge", ""},
-		{"version", []string{"WAYLAND_DISPLAY="}, []string{"-version"}, 0, "", "pombar dev\n"},
+			"pomobar: cannot connect to the Wayland compositor: ", ""},
+		{"usage", nil, []string{"-edge", "middle", "25m"}, 2, "pomobar: unknown edge", ""},
+		{"version", []string{"WAYLAND_DISPLAY="}, []string{"-version"}, 0, "", "pomobar dev\n"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			cmd, stderr := pombarCmd(t, c.env, c.args...)
+			cmd, stderr := pomobarCmd(t, c.env, c.args...)
 			var stdout bytes.Buffer
 			cmd.Stdout = &stdout
 			code := exitCode(t, cmd.Run())
@@ -146,7 +146,7 @@ func TestProcessCompositorClosesBar(t *testing.T) {
 	}
 	defer s.Close()
 	srv := dbustest.StartNotificationServer(t, dbustest.StartBus(t))
-	cmd, stderr := pombarCmd(t, []string{"XDG_RUNTIME_DIR=" + s.Dir(), "WAYLAND_DISPLAY=" + s.Name()}, "25m")
+	cmd, stderr := pomobarCmd(t, []string{"XDG_RUNTIME_DIR=" + s.Dir(), "WAYLAND_DISPLAY=" + s.Name()}, "25m")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestProcessCompositorClosesBar(t *testing.T) {
 	if code := exitCode(t, cmd.Wait()); code != 1 {
 		t.Fatalf("exit %d, want 1", code)
 	}
-	if got := stderr.String(); got != "pombar: the compositor closed the bar surface\n" {
+	if got := stderr.String(); got != "pomobar: the compositor closed the bar surface\n" {
 		t.Fatalf("stderr %q", got)
 	}
 	if len(srv.Calls()) != 0 {

@@ -12,14 +12,14 @@ import (
 
 const (
 	// AppName is the application name shown by the notification server.
-	AppName = "pombar"
+	AppName = "pomobar"
 	// Summary is the notification title.
 	Summary = "Time's up"
 	// ExpireTimeout is passed as expire_timeout: -1 lets the notification
 	// server apply the user's configured default (Plasma's own setting).
 	ExpireTimeout int32 = -1
 	// CallTimeout bounds the whole D-Bus exchange so a stuck bus never
-	// keeps pombar from exiting.
+	// keeps pomobar from exiting.
 	CallTimeout = 5 * time.Second
 
 	service = "org.freedesktop.Notifications"

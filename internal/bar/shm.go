@@ -39,7 +39,7 @@ func newShmPool(shm *client.Shm, w, h int, onRelease func(*shmBuffer)) (*shmPool
 		return nil, fmt.Errorf("invalid buffer size %dx%d", w, h)
 	}
 
-	fd, err := unix.MemfdCreate("pombar", unix.MFD_CLOEXEC|unix.MFD_ALLOW_SEALING)
+	fd, err := unix.MemfdCreate("pomobar", unix.MFD_CLOEXEC|unix.MFD_ALLOW_SEALING)
 	if err != nil {
 		return nil, fmt.Errorf("memfd_create: %w", err)
 	}

@@ -17,7 +17,7 @@ import (
 )
 
 // Namespace is the layer-shell namespace of the bar surface.
-const Namespace = "pombar"
+const Namespace = "pomobar"
 
 // teardownTimeout bounds how long Close waits for the compositor to
 // acknowledge that the bar surface is gone.

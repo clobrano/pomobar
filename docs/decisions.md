@@ -27,7 +27,7 @@ minimum Go version at 1.26.
 `client.Context` allows requests from several goroutines, **except** that
 requests creating objects must be serialized (new ids must reach the
 compositor in order), and reading/dispatching must happen on a single
-goroutine. pombar therefore:
+goroutine. pomobar therefore:
 
 - runs `Context.Dispatch` in a loop on a dedicated goroutine (event
   handlers run there);
@@ -80,7 +80,7 @@ same amount.
 
 `org.freedesktop.Notifications.Notify` over a private session-bus
 connection (`godbus/dbus/v5`, never auto-launching a bus): app name
-`pombar`, summary `Time's up`, body = `-label` or "Your <duration> timer
+`pomobar`, summary `Time's up`, body = `-label` or "Your <duration> timer
 has finished.", urgency normal, `expire_timeout = -1` so the notification
 server applies the user's own default (Plasma's notification settings).
 The whole exchange is bounded by a 5 s timeout. A failure prints one
@@ -101,5 +101,5 @@ once even if the bus is slow.
 | SIGINT (Ctrl-C) | 130 | no |
 | SIGTERM | 143 | no |
 
-`closed` exits 1 because the timer did not complete and pombar cannot show
+`closed` exits 1 because the timer did not complete and pomobar cannot show
 it any more; the user should notice rather than mistake it for success.

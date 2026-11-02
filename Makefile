@@ -1,7 +1,7 @@
-# pombar build helpers. All builds are static: CGO_ENABLED=0.
+# pomobar build helpers. All builds are static: CGO_ENABLED=0.
 
-BINARY  ?= pombar
-PKG     := ./cmd/pombar
+BINARY  ?= pomobar
+PKG     := ./cmd/pomobar
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 GOOS    ?= linux

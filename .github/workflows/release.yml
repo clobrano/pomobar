@@ -25,8 +25,8 @@ jobs:
         run: make dist VERSION="${GITHUB_REF_NAME}"
       - name: Check version injection
         run: |
-          tar -xzf "dist/pombar-${GITHUB_REF_NAME}-linux-amd64.tar.gz" -C "$RUNNER_TEMP"
-          "$RUNNER_TEMP/pombar-${GITHUB_REF_NAME}-linux-amd64/pombar" -version | tee /dev/stderr | grep -qx "pombar ${GITHUB_REF_NAME}"
+          tar -xzf "dist/pomobar-${GITHUB_REF_NAME}-linux-amd64.tar.gz" -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/pomobar-${GITHUB_REF_NAME}-linux-amd64/pomobar" -version | tee /dev/stderr | grep -qx "pomobar ${GITHUB_REF_NAME}"
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}

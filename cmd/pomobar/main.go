@@ -1,4 +1,4 @@
-// Command pombar draws a shrinking pomodoro countdown bar on a screen edge.
+// Command pomobar draws a shrinking pomodoro countdown bar on a screen edge.
 package main
 
 import (
@@ -43,11 +43,11 @@ const (
 	exitSIGTERM = 128 + int(syscall.SIGTERM) // 143
 )
 
-const usageText = `Usage: pombar [flags] <duration>
+const usageText = `Usage: pomobar [flags] <duration>
 
 Draw a thin bar along a screen edge that shrinks as <duration> runs out.
 The bar turns amber below 50 % and red below 20 %. When the time is up
-pombar sends a desktop notification, removes the bar and exits.
+pomobar sends a desktop notification, removes the bar and exits.
 
 <duration> uses Go syntax: 25m, 1h30m, 90s, 2m30s.
 
@@ -60,10 +60,10 @@ Flags:
   -version           print the version and exit
 
 Examples:
-  pombar 25m
-  pombar -label "Write the report" 50m
-  pombar -edge top -thickness 6 -reserve 25m
-  pombar -quiet 5m
+  pomobar 25m
+  pomobar -label "Write the report" 50m
+  pomobar -edge top -thickness 6 -reserve 25m
+  pomobar -quiet 5m
 
 Exit status: 0 when the timer completes, 1 on errors (no Wayland session,
 compositor without wlr-layer-shell, bar closed by the compositor), 2 on
@@ -88,7 +88,7 @@ var errHelp = errors.New("help requested")
 // appear before or after the duration.
 func parseArgs(args []string) (config, error) {
 	var cfg config
-	fs := flag.NewFlagSet("pombar", flag.ContinueOnError)
+	fs := flag.NewFlagSet("pomobar", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	edge := fs.String("edge", "bottom", "")
 	fs.IntVar(&cfg.thickness, "thickness", 4, "")
@@ -184,22 +184,22 @@ func run(args []string, d deps) int {
 		return exitOK
 	}
 	if err != nil {
-		fmt.Fprintf(d.stderr, "pombar: %v\n\n%s", err, usageText)
+		fmt.Fprintf(d.stderr, "pomobar: %v\n\n%s", err, usageText)
 		return exitUsage
 	}
 	if cfg.version {
-		fmt.Fprintln(d.stdout, "pombar", buildVersion())
+		fmt.Fprintln(d.stdout, "pomobar", buildVersion())
 		return exitOK
 	}
 
 	t, err := timer.New(cfg.duration, d.now())
 	if err != nil {
-		fmt.Fprintln(d.stderr, "pombar:", err)
+		fmt.Fprintln(d.stderr, "pomobar:", err)
 		return exitUsage
 	}
 	b, err := d.openBar(bar.Options{Edge: cfg.edge, Thickness: cfg.thickness, Reserve: cfg.reserve})
 	if err != nil {
-		fmt.Fprintln(d.stderr, "pombar:", err)
+		fmt.Fprintln(d.stderr, "pomobar:", err)
 		return exitError
 	}
 
@@ -207,12 +207,12 @@ func run(args []string, d deps) int {
 	// Remove the bar first, so it disappears at once whatever happens
 	// next. Close waits for the compositor to process the teardown.
 	if err := b.Close(); err != nil && code == exitOK {
-		fmt.Fprintln(d.stderr, "pombar: warning: closing the Wayland connection:", err)
+		fmt.Fprintln(d.stderr, "pomobar: warning: closing the Wayland connection:", err)
 	}
 	if code == exitOK && !cfg.quiet {
 		if err := d.notifier.Notify(notify.Summary, notificationBody(cfg)); err != nil {
 			// A missing notification never changes the exit status.
-			fmt.Fprintln(d.stderr, "pombar: warning: notification failed:", oneLine(err))
+			fmt.Fprintln(d.stderr, "pomobar: warning: notification failed:", oneLine(err))
 		}
 	}
 	return code
@@ -238,7 +238,7 @@ func countdown(t *timer.Timer, b drawer, d deps) int {
 		select {
 		case <-wake.C:
 		case <-b.Done():
-			fmt.Fprintln(d.stderr, "pombar:", b.Err())
+			fmt.Fprintln(d.stderr, "pomobar:", b.Err())
 			return exitError
 		case s := <-d.signals:
 			if s == syscall.SIGTERM {
@@ -252,7 +252,7 @@ func countdown(t *timer.Timer, b drawer, d deps) int {
 		}
 		f := t.Fraction(now)
 		if err := b.Draw(f, timer.Color(f)); err != nil {
-			fmt.Fprintln(d.stderr, "pombar:", err)
+			fmt.Fprintln(d.stderr, "pomobar:", err)
 			return exitError
 		}
 		// Wake at the next tick, or exactly at the deadline if sooner.

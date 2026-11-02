@@ -95,8 +95,8 @@ func TestLayerSurfaceSetup(t *testing.T) {
 	lastFrame(t, s, func(fakewl.Frame) bool { return true })
 	st := s.Snapshot()
 	l := st.Layer
-	if l.Namespace != "pombar" || l.Layer != 3 || l.OutputID != 0 {
-		t.Errorf("namespace/layer/output = %q/%d/%d, want pombar/3(overlay)/0", l.Namespace, l.Layer, l.OutputID)
+	if l.Namespace != "pomobar" || l.Layer != 3 || l.OutputID != 0 {
+		t.Errorf("namespace/layer/output = %q/%d/%d, want pomobar/3(overlay)/0", l.Namespace, l.Layer, l.OutputID)
 	}
 	if l.Anchor != 2|4|8 {
 		t.Errorf("anchor = %#x, want bottom|left|right", l.Anchor)
