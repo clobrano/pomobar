@@ -49,15 +49,26 @@ func runClient(cmd string, d deps) int {
 		fmt.Fprintf(d.stdout, "paused with %s left\n", clock(st.Remaining))
 	case ipc.CmdResume:
 		fmt.Fprintf(d.stdout, "resumed with %s left\n", clock(st.Remaining))
+	case ipc.CmdNext:
+		fmt.Fprintf(d.stdout, "starting cycle %d/%d\n", st.Cycle, st.Cycles)
 	}
 	return exitOK
 }
 
-// describe formats a status line, e.g. `12:03 left of 25:00 (paused) — Write`.
+// describe formats a status line, e.g. `12:03 left of 25:00 (paused) — Write`
+// or, for a pomodoro, `break 2/4: 3:10 left of 5:00 — Write`.
 func describe(st ipc.State) string {
-	s := fmt.Sprintf("%s left of %s", clock(st.Remaining), clock(st.Duration))
-	if st.Paused {
-		s += " (paused)"
+	var s string
+	if st.Phase == ipc.PhaseWaiting {
+		s = fmt.Sprintf("waiting to start cycle %d/%d (run \"pomobar next\")", st.Cycle, st.Cycles)
+	} else {
+		s = fmt.Sprintf("%s left of %s", clock(st.Remaining), clock(st.Duration))
+		if st.Paused {
+			s += " (paused)"
+		}
+		if st.Cycles > 0 {
+			s = fmt.Sprintf("%s %d/%d: %s", st.Phase, st.Cycle, st.Cycles, s)
+		}
 	}
 	if st.Label != "" {
 		s += " — " + st.Label

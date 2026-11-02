@@ -135,3 +135,30 @@ a channel, so the timer state is only touched by that goroutine.
   client.
 - The detached process has no terminal, so notification warnings are not
   shown anywhere. Logging to the journal is possible future work.
+
+## D7 — Pomodoro cycles
+
+`pomobar [flags] <work> <break> [<cycles>]` (cycles default 1) runs
+`cycles` × (work, break) in the one timer process.
+
+- **Approval before each new cycle.** Work → break is automatic (a plain
+  "Time for a break" notification). When a break ends, pomobar shows a
+  full dimmed bar and sends "Break is over" with one action button,
+  "Start cycle N/M", and `expire_timeout = 0` so it stays until answered.
+  The next cycle starts when the `ActionInvoked` signal for that
+  notification and key arrives, or on `pomobar next`, which then withdraws
+  the notification with `CloseNotification`. Dismissing the notification
+  without pressing the button keeps pomobar waiting (`pomobar next` still
+  works). The process keeps a private session-bus connection open only
+  while waiting.
+- **No action buttons.** If the server does not list the `actions`
+  capability, pomobar sends a plain notification telling the user to run
+  `pomobar next`. With `-quiet` no notification is sent and `pomobar next`
+  is the only way on.
+- **Colors.** Work phases use the green/amber/red bar, breaks a constant
+  blue (#42A5F5), waiting a full bar in dimmed green.
+- **Control.** `status` reports the phase (`work`, `break`, `waiting`) and
+  cycle. `pause`/`resume` apply to work and break phases and are refused
+  while waiting; `stop` ends the whole pomodoro with no notification.
+- **End.** After the last break: "Pomodoro complete — All M cycles done."
+  The last break is counted down too, so the sequence ends rested.

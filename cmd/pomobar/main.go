@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -45,30 +46,37 @@ const (
 )
 
 const usageText = `Usage:
-  pomobar [flags] <duration>   start a timer in the background
-  pomobar status               show the running timer
-  pomobar pause | resume       pause or resume the running timer
-  pomobar stop                 cancel the running timer (no notification)
+  pomobar [flags] <duration>                 start a timer in the background
+  pomobar [flags] <work> <break> [<cycles>]  start a pomodoro (default 1 cycle)
+  pomobar status                             show the running timer
+  pomobar pause | resume                     pause or resume the running timer
+  pomobar next                               start the next pomodoro cycle
+  pomobar stop                               cancel the running timer
 
-Draw a thin bar along a screen edge that shrinks as <duration> runs out.
-The bar turns amber below 50 % and red below 20 %, and dims while paused.
-When the time is up pomobar sends a desktop notification, removes the bar
-and exits. Only one timer runs at a time.
+Draw a thin bar along a screen edge that shrinks as the time runs out.
+Work bars turn amber below 50 % and red below 20 %; break bars are blue;
+paused bars are dimmed. When the time is up pomobar sends a desktop
+notification, removes the bar and exits. Only one timer runs at a time.
 
-<duration> uses Go syntax: 25m, 1h30m, 90s, 2m30s.
+A pomodoro repeats <cycles> times: <work>, then <break>. After each break
+pomobar shows a full dimmed bar and waits: the next cycle starts when you
+press "Start" in the notification or run "pomobar next".
+
+Durations use Go syntax: 25m, 1h30m, 90s, 2m30s.
 
 Flags:
   -edge string       screen edge: top, bottom, left or right (default "bottom")
   -thickness int     bar thickness in logical pixels (default 4)
   -reserve           reserve the bar's strip so windows do not cover it
-  -label string      text shown in the notification body
-  -quiet             do not send a notification at the end
+  -label string      text shown in notifications and in status
+  -quiet             send no notifications (use "pomobar next" between cycles)
   -foreground        run the timer in this terminal until it ends
   -version           print the version and exit
 
 Examples:
   pomobar 25m
-  pomobar -label "Write the report" 50m
+  pomobar 25m 5m 4
+  pomobar -label "Write the report" 50m 10m 2
   pomobar -edge top -thickness 6 -reserve 25m
   pomobar status
   pomobar -foreground 25m && pomobar -foreground -label "Break over" 5m
@@ -91,14 +99,22 @@ type config struct {
 	quiet      bool
 	foreground bool
 	version    bool
-	// cmd is a client command (status, stop, pause, resume), or "" to
-	// start a timer.
+	// rest and cycles describe a pomodoro: cycles × (duration of work +
+	// rest). cycles is 0 for a plain timer.
+	rest   time.Duration
+	cycles int
+	// cmd is a client command (status, stop, pause, resume, next), or ""
+	// to start a timer.
 	cmd string
 }
+
+// pomodoro reports whether the timer has break phases and cycles.
+func (c config) pomodoro() bool { return c.cycles > 0 }
 
 // clientCommands are the positional words that talk to a running timer.
 var clientCommands = map[string]bool{
 	ipc.CmdStatus: true, ipc.CmdStop: true, ipc.CmdPause: true, ipc.CmdResume: true,
+	ipc.CmdNext: true,
 }
 
 var errHelp = errors.New("help requested")
@@ -155,21 +171,40 @@ func parseArgs(args []string) (config, error) {
 	if cfg.thickness < 1 {
 		return cfg, fmt.Errorf("invalid thickness %d: must be at least 1", cfg.thickness)
 	}
-	switch len(positional) {
-	case 0:
+	if len(positional) == 0 {
 		return cfg, errors.New("missing duration or command")
-	case 1:
-	default:
-		return cfg, fmt.Errorf("unexpected arguments: %s", strings.Join(positional[1:], " "))
 	}
-	cfg.duration, err = time.ParseDuration(positional[0])
-	if err != nil {
-		return cfg, fmt.Errorf("invalid duration %q (examples: 25m, 1h30m, 90s)", positional[0])
+	if len(positional) > 3 {
+		return cfg, fmt.Errorf("unexpected arguments: %s", strings.Join(positional[3:], " "))
 	}
-	if cfg.duration <= 0 {
-		return cfg, fmt.Errorf("invalid duration %q: must be positive", positional[0])
+	if cfg.duration, err = parseDuration(positional[0], "duration"); err != nil {
+		return cfg, err
+	}
+	if len(positional) >= 2 {
+		if cfg.rest, err = parseDuration(positional[1], "break"); err != nil {
+			return cfg, err
+		}
+		cfg.cycles = 1
+	}
+	if len(positional) == 3 {
+		n, err := strconv.Atoi(positional[2])
+		if err != nil || n < 1 {
+			return cfg, fmt.Errorf("invalid number of cycles %q: must be a whole number of at least 1", positional[2])
+		}
+		cfg.cycles = n
 	}
 	return cfg, nil
+}
+
+func parseDuration(arg, what string) (time.Duration, error) {
+	d, err := time.ParseDuration(arg)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s %q (examples: 25m, 1h30m, 90s)", what, arg)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("invalid %s %q: must be positive", what, arg)
+	}
+	return d, nil
 }
 
 // drawer is the part of *bar.Bar that run uses.

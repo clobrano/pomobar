@@ -150,6 +150,17 @@ Requested after the MVP review: the timer should not block the terminal.
 ### M5 acceptance
 - [ ] On KDE Plasma: `pomobar 25m` returns immediately, the bar stays after closing the terminal, and `status`/`pause`/`resume`/`stop` act on it.
 
+## M6 — Pomodoro cycles
+
+- [x] **T6.1** `pomobar [flags] <work> <break> [<cycles>]`, validated (positive break, whole cycles ≥ 1).
+- [x] **T6.2** Run cycles × (work, break) in one timer process; blue break bar; "Time for a break" notification.
+- [x] **T6.3** Before each new cycle wait for approval: persistent notification with a "Start cycle N/M" action button (`ActionInvoked`), or `pomobar next` (which withdraws the notification). Fallback to `pomobar next` without action-button support or with `-quiet`.
+- [x] **T6.4** `status` shows phase and cycle; pause/resume refused while waiting; "Pomodoro complete" at the end.
+- [x] **T6.5** Tests: notification questions against a real session bus (action key/id filtering, withdraw, no-actions); in-process sequence, quiet and fallback tests; detached process tests pressing the button over D-Bus and using `pomobar next`.
+
+### M6 acceptance
+- [ ] On KDE Plasma: the "Start cycle" button appears on the "Break is over" notification and starts the next cycle; dismissing it keeps pomobar waiting.
+
 ## Open questions to resolve
 
 - [x] Go Wayland library choice (T1.1, decide in M1): `vcaesar/go-wayland`, see `docs/decisions.md`.
@@ -160,5 +171,5 @@ Requested after the MVP review: the timer should not block the terminal.
 ## Out of scope for the MVP (future work)
 
 Monitor selection (`-output`) and per-monitor bars; a tmux segment
-(`pomobar status` covers the basics); pomodoro cycles; config file;
+(`pomobar status` covers the basics); long breaks; config file;
 end sound; fractional scaling via `wp_viewporter` + fractional-scale.

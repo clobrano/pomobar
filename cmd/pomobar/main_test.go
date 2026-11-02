@@ -14,6 +14,8 @@ import (
 	"github.com/clobrano/pomobar/internal/bar"
 	"github.com/clobrano/pomobar/internal/dbustest"
 	"github.com/clobrano/pomobar/internal/fakewl"
+	"github.com/clobrano/pomobar/internal/ipc"
+	"github.com/clobrano/pomobar/internal/notify"
 	"github.com/clobrano/pomobar/internal/timer"
 )
 
@@ -35,9 +37,17 @@ func TestParseArgs(t *testing.T) {
 		{args: "resume", want: config{edge: bar.Bottom, thickness: 4, cmd: "resume"}},
 		{args: "status now", wantErr: "unexpected arguments: now"},
 		{args: "-edge top stop", wantErr: "stop takes no flags (got -edge)"},
-		{args: "25m stop", wantErr: "unexpected arguments: stop"},
+		{args: "25m stop", wantErr: `invalid break "stop"`},
 		{args: "", wantErr: "missing duration"},
-		{args: "25m 5m", wantErr: "unexpected arguments: 5m"},
+		{args: "25m 5m", want: config{duration: 25 * time.Minute, rest: 5 * time.Minute, cycles: 1, edge: bar.Bottom, thickness: 4}},
+		{args: "25m 5m 4", want: config{duration: 25 * time.Minute, rest: 5 * time.Minute, cycles: 4, edge: bar.Bottom, thickness: 4}},
+		{args: "-label x 50m 10m 2 -edge top", want: config{duration: 50 * time.Minute, rest: 10 * time.Minute, cycles: 2, edge: bar.Top, thickness: 4, label: "x"}},
+		{args: "next", want: config{edge: bar.Bottom, thickness: 4, cmd: "next"}},
+		{args: "25m 5m 4 1", wantErr: "unexpected arguments: 1"},
+		{args: "25m 0s 4", wantErr: `invalid break "0s": must be positive`},
+		{args: "25m five 4", wantErr: `invalid break "five"`},
+		{args: "25m 5m 0", wantErr: `invalid number of cycles "0"`},
+		{args: "25m 5m 2.5", wantErr: `invalid number of cycles "2.5"`},
 		{args: "0s", wantErr: "must be positive"},
 		{args: "-5m", wantErr: "flag provided but not defined"},
 		{args: "-- -5m", wantErr: "must be positive"},
@@ -97,18 +107,50 @@ func (f *fakeBar) Close() error {
 
 // fakeNotifier records notifications.
 type fakeNotifier struct {
-	mu     sync.Mutex
-	bodies []string
-	err    error
+	mu        sync.Mutex
+	bodies    []string // of "Time's up" notifications
+	all       []string // "summary|body|action" of every notification
+	err       error
+	askErr    error
+	noApprove bool // questions are never answered
+	withdrawn int  // questions closed before being answered
+}
+
+func (n *fakeNotifier) Ask(summary, body, action string) (*notify.Question, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.askErr != nil {
+		return nil, n.askErr
+	}
+	n.all = append(n.all, summary+"|"+body+"|"+action)
+	answered := make(chan struct{})
+	if !n.noApprove {
+		close(answered)
+	}
+	return notify.NewQuestion(answered, func() {
+		select {
+		case <-answered:
+		default:
+			n.mu.Lock()
+			n.withdrawn++
+			n.mu.Unlock()
+		}
+	}), nil
+}
+
+func (n *fakeNotifier) log() []string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return append([]string(nil), n.all...)
 }
 
 func (n *fakeNotifier) Notify(summary, body string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if summary != "Time's up" {
-		panic("unexpected summary " + summary)
+	if summary == "Time's up" {
+		n.bodies = append(n.bodies, body)
 	}
-	n.bodies = append(n.bodies, body)
+	n.all = append(n.all, summary+"|"+body)
 	return n.err
 }
 
@@ -125,7 +167,7 @@ func testDeps(b *fakeBar, now func() time.Time) (deps, *bytes.Buffer, *bytes.Buf
 }
 
 func TestUsageErrorsExit2(t *testing.T) {
-	for _, args := range [][]string{{}, {"25m", "x"}, {"-edge", "up", "1m"}, {"-thickness", "0", "1m"}, {"0s"}} {
+	for _, args := range [][]string{{}, {"25m", "x"}, {"25m", "5m", "4", "x"}, {"-edge", "up", "1m"}, {"-thickness", "0", "1m"}, {"0s"}} {
 		d, _, errb := testDeps(newFakeBar(), time.Now)
 		if code := run(args, d); code != exitUsage {
 			t.Errorf("run(%q) = %d, want 2", args, code)
@@ -384,6 +426,137 @@ func TestSignalsCancel(t *testing.T) {
 		}
 		if n := d.notifier.(*fakeNotifier); len(n.bodies) != 0 {
 			t.Errorf("%v: notified on cancel", sig)
+		}
+	}
+}
+
+func TestPomodoroSequence(t *testing.T) {
+	clk := &fakeClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), step: time.Minute}
+	b := newFakeBar()
+	d, _, errb := testDeps(b, clk.now)
+	if code := run([]string{"-foreground", "-label", "Write", "3m", "2m", "2"}, d); code != exitOK {
+		t.Fatalf("exit %d: %s", code, errb)
+	}
+	want := []string{
+		"Time for a break|Write: Cycle 1/2 done: take a 2m0s break.",
+		`Break is over|Write: Ready for cycle 2/2? Start it here or run "pomobar next".|Start cycle 2/2`,
+		"Time for a break|Write: Cycle 2/2 done: take a 2m0s break.",
+		"Pomodoro complete|Write: All 2 cycles done.",
+	}
+	if got := d.notifier.(*fakeNotifier).log(); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("notifications:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	// Work is green, breaks blue, waiting a dimmed full green bar.
+	var sawBlue, sawWaiting bool
+	for i, c := range b.colors {
+		if c == timer.Blue {
+			sawBlue = true
+		}
+		if c == timer.Dim(timer.Green) && b.draws[i] == 1 {
+			sawWaiting = true
+		}
+	}
+	if !sawBlue || !sawWaiting {
+		t.Fatalf("colors: blue=%v waiting=%v (%v)", sawBlue, sawWaiting, b.colors)
+	}
+}
+
+func TestPomodoroQuietWaitsForNext(t *testing.T) {
+	clk := &fakeClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), step: time.Minute}
+	b := newFakeBar()
+	d, _, _ := testDeps(b, clk.now)
+	n := d.notifier.(*fakeNotifier)
+	got := make(chan int, 1)
+	go func() { got <- run([]string{"-foreground", "-quiet", "2m", "1m", "2"}, d) }()
+	path, _ := ipc.SocketPath()
+	var st ipc.State
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if resp, err := ipc.Call(path, ipc.Request{Cmd: ipc.CmdStatus}); err == nil && resp.State.Phase == ipc.PhaseWaiting {
+			st = resp.State
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if st.Phase != ipc.PhaseWaiting || st.Cycle != 2 || st.Cycles != 2 {
+		t.Fatalf("state %+v, want waiting for cycle 2/2", st)
+	}
+	for _, cmd := range []string{ipc.CmdPause, ipc.CmdResume} {
+		if resp, _ := ipc.Call(path, ipc.Request{Cmd: cmd}); resp.OK {
+			t.Fatalf("%s accepted while waiting", cmd)
+		}
+	}
+	if resp, err := ipc.Call(path, ipc.Request{Cmd: ipc.CmdNext}); err != nil || !resp.OK {
+		t.Fatalf("next: %+v %v", resp, err)
+	}
+	if code := <-got; code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+	if l := n.log(); len(l) != 0 {
+		t.Fatalf("-quiet sent notifications: %q", l)
+	}
+}
+
+func TestPomodoroWithoutActionButtons(t *testing.T) {
+	clk := &fakeClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), step: time.Minute}
+	d, _, _ := testDeps(newFakeBar(), clk.now)
+	n := d.notifier.(*fakeNotifier)
+	n.askErr = notify.ErrNoActions
+	got := make(chan int, 1)
+	go func() { got <- run([]string{"-foreground", "2m", "1m", "2"}, d) }()
+	path, _ := ipc.SocketPath()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if resp, err := ipc.Call(path, ipc.Request{Cmd: ipc.CmdNext}); err == nil && resp.OK {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if code := <-got; code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+	if l := n.log(); len(l) < 2 || l[1] != `Break is over|Run "pomobar next" to start cycle 2/2.` {
+		t.Fatalf("notifications %q", l)
+	}
+}
+
+func TestNextWithdrawsQuestion(t *testing.T) {
+	clk := &fakeClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), step: time.Minute}
+	d, _, _ := testDeps(newFakeBar(), clk.now)
+	n := d.notifier.(*fakeNotifier)
+	n.noApprove = true
+	got := make(chan int, 1)
+	go func() { got <- run([]string{"-foreground", "2m", "1m", "2"}, d) }()
+	path, _ := ipc.SocketPath()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if resp, err := ipc.Call(path, ipc.Request{Cmd: ipc.CmdNext}); err == nil && resp.OK {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if code := <-got; code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+	if n.withdrawn != 1 {
+		t.Fatalf("withdrawn %d, want 1", n.withdrawn)
+	}
+}
+
+func TestDescribe(t *testing.T) {
+	cases := []struct {
+		st   ipc.State
+		want string
+	}{
+		{ipc.State{Phase: ipc.PhaseWork, Duration: 25 * time.Minute, Remaining: 723 * time.Second}, "12:03 left of 25:00"},
+		{ipc.State{Phase: ipc.PhaseWork, Duration: 2 * time.Hour, Remaining: 3601 * time.Second, Paused: true, Label: "x"}, "1:00:01 left of 2:00:00 (paused) — x"},
+		{ipc.State{Phase: ipc.PhaseBreak, Duration: 5 * time.Minute, Remaining: 190 * time.Second, Cycle: 2, Cycles: 4}, "break 2/4: 3:10 left of 5:00"},
+		{ipc.State{Phase: ipc.PhaseWaiting, Cycle: 3, Cycles: 4, Label: "x"}, `waiting to start cycle 3/4 (run "pomobar next") — x`},
+		{ipc.State{Phase: ipc.PhaseWork, Duration: time.Minute, Remaining: 1500 * time.Millisecond}, "0:02 left of 1:00"},
+	}
+	for _, c := range cases {
+		if got := describe(c.st); got != c.want {
+			t.Errorf("describe(%+v) = %q, want %q", c.st, got, c.want)
 		}
 	}
 }

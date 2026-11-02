@@ -20,13 +20,13 @@ func TestCallRoundTrip(t *testing.T) {
 		if r.Cmd != CmdStatus {
 			return Response{Error: "unknown command " + r.Cmd}
 		}
-		return Response{OK: true, State: State{Duration: 25 * time.Minute, Remaining: time.Minute, Paused: true, Label: "x"}}
+		return Response{OK: true, State: State{Phase: PhaseBreak, Duration: 25 * time.Minute, Remaining: time.Minute, Paused: true, Label: "x", Cycle: 2, Cycles: 4}}
 	})
 	resp, err := Call(path, Request{Cmd: CmdStatus})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := State{Duration: 25 * time.Minute, Remaining: time.Minute, Paused: true, Label: "x"}
+	want := State{Phase: PhaseBreak, Duration: 25 * time.Minute, Remaining: time.Minute, Paused: true, Label: "x", Cycle: 2, Cycles: 4}
 	if !resp.OK || resp.State != want {
 		t.Fatalf("resp %+v", resp)
 	}

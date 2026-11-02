@@ -27,6 +27,14 @@ const (
 	CmdStop   = "stop"
 	CmdPause  = "pause"
 	CmdResume = "resume"
+	CmdNext   = "next"
+)
+
+// Phases of a timer.
+const (
+	PhaseWork    = "work"    // the (only, or active) countdown
+	PhaseBreak   = "break"   // the rest countdown of a pomodoro cycle
+	PhaseWaiting = "waiting" // between cycles, waiting for approval
 )
 
 // ioTimeout bounds every read and write on a control connection.
@@ -49,10 +57,14 @@ type Request struct {
 
 // State describes the running timer.
 type State struct {
-	Duration  time.Duration `json:"duration"`
+	Phase     string        `json:"phase"`
+	Duration  time.Duration `json:"duration"` // of the current phase
 	Remaining time.Duration `json:"remaining"`
 	Paused    bool          `json:"paused"`
 	Label     string        `json:"label,omitempty"`
+	// Cycle (1-based) and Cycles are set for pomodoro timers only.
+	Cycle  int `json:"cycle,omitempty"`
+	Cycles int `json:"cycles,omitempty"`
 }
 
 // Response is the timer's answer.

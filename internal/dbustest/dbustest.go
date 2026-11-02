@@ -90,9 +90,55 @@ type Notification struct {
 
 // Server is a fake notification server.
 type Server struct {
-	mu    sync.Mutex
-	cond  *sync.Cond
-	calls []Notification
+	conn *dbus.Conn
+
+	mu        sync.Mutex
+	cond      *sync.Cond
+	calls     []Notification
+	closed    []uint32 // ids withdrawn with CloseNotification
+	noActions bool
+}
+
+// SetActions sets whether the server advertises the "actions" capability
+// (default true).
+func (s *Server) SetActions(on bool) {
+	s.mu.Lock()
+	s.noActions = !on
+	s.mu.Unlock()
+}
+
+// GetCapabilities implements org.freedesktop.Notifications.GetCapabilities.
+func (s *Server) GetCapabilities() ([]string, *dbus.Error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	caps := []string{"body"}
+	if !s.noActions {
+		caps = append(caps, "actions")
+	}
+	return caps, nil
+}
+
+// CloseNotification implements org.freedesktop.Notifications.CloseNotification.
+func (s *Server) CloseNotification(id uint32) *dbus.Error {
+	s.mu.Lock()
+	s.closed = append(s.closed, id)
+	s.cond.Broadcast()
+	s.mu.Unlock()
+	_ = s.conn.Emit("/org/freedesktop/Notifications", "org.freedesktop.Notifications.NotificationClosed", id, uint32(3))
+	return nil
+}
+
+// Closed returns the ids withdrawn with CloseNotification.
+func (s *Server) Closed() []uint32 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]uint32(nil), s.closed...)
+}
+
+// Invoke simulates the user pressing the action button key of
+// notification id (ids start at 1, in call order).
+func (s *Server) Invoke(id uint32, key string) error {
+	return s.conn.Emit("/org/freedesktop/Notifications", "org.freedesktop.Notifications.ActionInvoked", id, key)
 }
 
 // Notify implements org.freedesktop.Notifications.Notify.
@@ -137,7 +183,7 @@ func StartNotificationServer(t testing.TB, addr string) *Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { conn.Close() })
-	s := &Server{}
+	s := &Server{conn: conn}
 	s.cond = sync.NewCond(&s.mu)
 	if err := conn.Export(s, "/org/freedesktop/Notifications", "org.freedesktop.Notifications"); err != nil {
 		t.Fatal(err)
