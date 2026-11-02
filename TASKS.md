@@ -11,11 +11,11 @@ Wayland.
 
 ## M0 — Project bootstrap
 
-- [ ] **T0.1** Initialise the Go module (`go mod init github.com/clobrano/pomobar`), pick a Go version, add `.gitignore` entries for build output.
-- [ ] **T0.2** Create the package skeleton: `cmd/pombar`, `internal/timer`, `internal/bar`, `internal/notify`, `internal/protocol/layershell` (placeholder).
-- [ ] **T0.3** Add a `Makefile` (or `justfile`) with `build` (`CGO_ENABLED=0`), `test`, `vet`, `lint` targets.
-- [ ] **T0.4** CI workflow (GitHub Actions): `go vet`, `go test ./...`, and a `CGO_ENABLED=0` build for linux/amd64 and linux/arm64 on every push/PR.
-- [ ] **T0.5** Inject version via `-ldflags "-X main.version=…"` so `-version` has something to print later.
+- [x] **T0.1** Initialise the Go module (`go mod init github.com/clobrano/pomobar`), pick a Go version, add `.gitignore` entries for build output.
+- [x] **T0.2** Create the package skeleton: `cmd/pombar`, `internal/timer`, `internal/bar`, `internal/notify`, `internal/protocol/layershell` (placeholder).
+- [x] **T0.3** Add a `Makefile` (or `justfile`) with `build` (`CGO_ENABLED=0`), `test`, `vet`, `lint` targets.
+- [x] **T0.4** CI workflow (GitHub Actions): `go vet`, `go test ./...`, and a `CGO_ENABLED=0` build for linux/amd64 and linux/arm64 on every push/PR.
+- [x] **T0.5** Inject version via `-ldflags "-X main.version=…"` so `-version` has something to print later.
 
 ## M1 — Layer-shell spike
 
