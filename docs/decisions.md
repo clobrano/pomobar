@@ -58,3 +58,48 @@ and returns the callback afterwards, which could miss a fast reply).
 The bar uses the `overlay` layer so it stays above fullscreen windows. If
 it misbehaves on KDE Plasma, switch to `top` and record it here (PRD risk;
 needs manual verification on KDE).
+
+## D3 — Countdown on the wall clock (M2)
+
+`timer.Timer` strips Go's monotonic reading (`time.Now().Round(0)`) from
+its start and from every `now`, so all arithmetic uses the wall clock. On
+Linux Go's monotonic clock is `CLOCK_MONOTONIC`, which stops while the
+system is suspended: a monotonic deadline would end late by the length of
+the suspend. The wall clock keeps running, so a 25 m timer ends 25
+wall-clock minutes after it started even across a suspend.
+
+The main loop sleeps with Go timers (which are monotonic) for at most one
+second at a time, so after a resume the next wake-up is at most one second
+away and sees that the wall-clock deadline has passed. Without a suspend it
+wakes exactly at the deadline.
+
+Trade-off: a manual clock change or an NTP step moves the deadline by the
+same amount.
+
+## D4 — Notification
+
+`org.freedesktop.Notifications.Notify` over a private session-bus
+connection (`godbus/dbus/v5`, never auto-launching a bus): app name
+`pombar`, summary `Time's up`, body = `-label` or "Your <duration> timer
+has finished.", urgency normal, `expire_timeout = -1` so the notification
+server applies the user's own default (Plasma's notification settings).
+The whole exchange is bounded by a 5 s timeout. A failure prints one
+warning line on stderr and never changes the exit status.
+
+The bar is removed before the notification is sent, so it disappears at
+once even if the bus is slow.
+
+## D5 — Exit codes
+
+| Situation | Exit | Notification |
+|---|---|---|
+| Timer completed | 0 | yes, unless `-quiet` |
+| `-version`, `-h` | 0 | no |
+| No `$WAYLAND_DISPLAY`, connection failure, no layer-shell, protocol error | 1 | no |
+| Compositor sent `closed` for the bar (e.g. its output went away) | 1 | no |
+| Invalid usage | 2 | no |
+| SIGINT (Ctrl-C) | 130 | no |
+| SIGTERM | 143 | no |
+
+`closed` exits 1 because the timer did not complete and pombar cannot show
+it any more; the user should notice rather than mistake it for success.

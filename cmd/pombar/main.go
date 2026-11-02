@@ -8,10 +8,13 @@ import (
 	"image/color"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/clobrano/pomobar/internal/bar"
+	"github.com/clobrano/pomobar/internal/notify"
 	"github.com/clobrano/pomobar/internal/timer"
 )
 
@@ -20,9 +23,11 @@ var version = "dev"
 
 // Exit codes.
 const (
-	exitOK    = 0
-	exitError = 1
-	exitUsage = 2
+	exitOK      = 0
+	exitError   = 1
+	exitUsage   = 2
+	exitSIGINT  = 128 + int(syscall.SIGINT)  // 130
+	exitSIGTERM = 128 + int(syscall.SIGTERM) // 143
 )
 
 const usageText = `Usage: pombar [flags] <duration>
@@ -48,8 +53,9 @@ Examples:
   pombar -quiet 5m
 
 Exit status: 0 when the timer completes, 1 on errors (no Wayland session,
-compositor without wlr-layer-shell), 2 on invalid usage, 130 on SIGINT,
-143 on SIGTERM.
+compositor without wlr-layer-shell, bar closed by the compositor), 2 on
+invalid usage, 130 on SIGINT (Ctrl-C), 143 on SIGTERM. A cancelled timer
+sends no notification.
 `
 
 // config is the parsed command line.
@@ -130,25 +136,32 @@ type drawer interface {
 
 // deps are run's side effects, replaceable in tests.
 type deps struct {
-	openBar func(bar.Options) (drawer, error)
-	now     func() time.Time
-	tick    time.Duration // redraw interval
-	stdout  io.Writer
-	stderr  io.Writer
+	openBar  func(bar.Options) (drawer, error)
+	notifier notify.Notifier
+	signals  <-chan os.Signal
+	now      func() time.Time
+	tick     time.Duration // redraw interval
+	stdout   io.Writer
+	stderr   io.Writer
 }
 
 func defaultDeps() deps {
 	return deps{
-		openBar: func(o bar.Options) (drawer, error) { return bar.Open(o) },
-		now:     time.Now,
-		tick:    time.Second,
-		stdout:  os.Stdout,
-		stderr:  os.Stderr,
+		openBar:  func(o bar.Options) (drawer, error) { return bar.Open(o) },
+		notifier: notify.DBus{},
+		now:      time.Now,
+		tick:     time.Second,
+		stdout:   os.Stdout,
+		stderr:   os.Stderr,
 	}
 }
 
 func main() {
-	os.Exit(run(os.Args[1:], defaultDeps()))
+	d := defaultDeps()
+	sig := make(chan os.Signal, 2)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	d.signals = sig
+	os.Exit(run(os.Args[1:], d))
 }
 
 func run(args []string, d deps) int {
@@ -178,10 +191,30 @@ func run(args []string, d deps) int {
 	}
 
 	code := countdown(t, b, d)
+	// Remove the bar first, so it disappears at once whatever happens
+	// next. Close waits for the compositor to process the teardown.
 	if err := b.Close(); err != nil && code == exitOK {
 		fmt.Fprintln(d.stderr, "pombar: warning: closing the Wayland connection:", err)
 	}
+	if code == exitOK && !cfg.quiet {
+		if err := d.notifier.Notify(notify.Summary, notificationBody(cfg)); err != nil {
+			// A missing notification never changes the exit status.
+			fmt.Fprintln(d.stderr, "pombar: warning: notification failed:", oneLine(err))
+		}
+	}
 	return code
+}
+
+// notificationBody is the label, or a default naming the duration.
+func notificationBody(cfg config) string {
+	if cfg.label != "" {
+		return cfg.label
+	}
+	return fmt.Sprintf("Your %s timer has finished.", cfg.duration)
+}
+
+func oneLine(err error) string {
+	return strings.Join(strings.Fields(err.Error()), " ")
 }
 
 // countdown redraws the bar until the timer ends or the bar goes away.
@@ -194,6 +227,11 @@ func countdown(t *timer.Timer, b drawer, d deps) int {
 		case <-b.Done():
 			fmt.Fprintln(d.stderr, "pombar:", b.Err())
 			return exitError
+		case s := <-d.signals:
+			if s == syscall.SIGTERM {
+				return exitSIGTERM
+			}
+			return exitSIGINT
 		}
 		now := d.now()
 		if t.Done(now) {

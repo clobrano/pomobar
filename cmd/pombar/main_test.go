@@ -2,14 +2,17 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"image/color"
 	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/clobrano/pomobar/internal/bar"
+	"github.com/clobrano/pomobar/internal/dbustest"
 	"github.com/clobrano/pomobar/internal/fakewl"
 	"github.com/clobrano/pomobar/internal/timer"
 )
@@ -83,14 +86,32 @@ func (f *fakeBar) Close() error {
 	return nil
 }
 
+// fakeNotifier records notifications.
+type fakeNotifier struct {
+	mu     sync.Mutex
+	bodies []string
+	err    error
+}
+
+func (n *fakeNotifier) Notify(summary, body string) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if summary != "Time's up" {
+		panic("unexpected summary " + summary)
+	}
+	n.bodies = append(n.bodies, body)
+	return n.err
+}
+
 func testDeps(b *fakeBar, now func() time.Time) (deps, *bytes.Buffer, *bytes.Buffer) {
 	var out, errb bytes.Buffer
 	return deps{
-		openBar: func(o bar.Options) (drawer, error) { b.opts = o; return b, nil },
-		now:     now,
-		tick:    time.Millisecond,
-		stdout:  &out,
-		stderr:  &errb,
+		openBar:  func(o bar.Options) (drawer, error) { b.opts = o; return b, nil },
+		notifier: &fakeNotifier{},
+		now:      now,
+		tick:     time.Millisecond,
+		stdout:   &out,
+		stderr:   &errb,
 	}, &out, &errb
 }
 
@@ -195,20 +216,28 @@ func TestBarClosedByCompositorExits1(t *testing.T) {
 	if !strings.Contains(errb.String(), "closed the bar") || !b.closed {
 		t.Fatalf("stderr %q closed %v", errb.String(), b.closed)
 	}
+	if n := d.notifier.(*fakeNotifier); len(n.bodies) != 0 {
+		t.Fatal("notified after the compositor closed the bar")
+	}
 }
 
 func TestOpenErrorExits1(t *testing.T) {
 	for _, err := range []error{bar.ErrNoDisplay, bar.ErrNoLayerShell} {
 		var errb bytes.Buffer
+		n := &fakeNotifier{}
 		d := deps{
-			openBar: func(bar.Options) (drawer, error) { return nil, err },
-			now:     time.Now, tick: time.Second, stdout: &bytes.Buffer{}, stderr: &errb,
+			openBar:  func(bar.Options) (drawer, error) { return nil, err },
+			notifier: n,
+			now:      time.Now, tick: time.Second, stdout: &bytes.Buffer{}, stderr: &errb,
 		}
 		if code := run([]string{"25m"}, d); code != exitError {
 			t.Fatalf("exit %d, want 1", code)
 		}
 		if got := errb.String(); got != "pombar: "+err.Error()+"\n" {
 			t.Fatalf("stderr %q", got)
+		}
+		if len(n.bodies) != 0 {
+			t.Fatal("notified after an error")
 		}
 	}
 }
@@ -224,12 +253,14 @@ func TestEndToEndFakeCompositor(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", s.Dir())
 	t.Setenv("WAYLAND_DISPLAY", s.Name())
 
+	srv := dbustest.StartNotificationServer(t, dbustest.StartBus(t))
+
 	d := defaultDeps()
 	var errb bytes.Buffer
 	d.stderr = &errb
 	d.tick = 100 * time.Millisecond
 	start := time.Now()
-	if code := run([]string{"-edge", "top", "1500ms"}, d); code != exitOK {
+	if code := run([]string{"-edge", "top", "-label", "Break time", "1500ms"}, d); code != exitOK {
 		t.Fatalf("exit %d: %s", code, errb.String())
 	}
 	late := time.Since(start) - 1500*time.Millisecond
@@ -246,6 +277,10 @@ func TestEndToEndFakeCompositor(t *testing.T) {
 	first := st.Frames[0]
 	if first.Width != 400 || first.Pixel(399, 0) != 0xFF4CAF50 {
 		t.Fatalf("first frame %dx%d px=%#x", first.Width, first.Height, first.Pixel(399, 0))
+	}
+	calls := srv.Wait(1, 5*time.Second)
+	if len(calls) != 1 || calls[0].AppName != "pombar" || calls[0].Summary != "Time's up" || calls[0].Body != "Break time" {
+		t.Fatalf("notifications: %+v", calls)
 	}
 }
 
@@ -281,5 +316,65 @@ func TestLongRun(t *testing.T) {
 	t.Logf("duration %v, ended %v after the wall-clock deadline, %d frames", dur, late, len(s.Snapshot().Frames))
 	if late < 0 || late > time.Second {
 		t.Fatalf("ended %v after the deadline, want within 1s", late)
+	}
+}
+
+func fastClock() func() time.Time {
+	c := &fakeClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), step: time.Minute}
+	return c.now
+}
+
+func TestNotificationAtEnd(t *testing.T) {
+	cases := []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"-label", "Write the report", "5m"}, []string{"Write the report"}},
+		{[]string{"5m"}, []string{"Your 5m0s timer has finished."}},
+		{[]string{"-quiet", "-label", "x", "5m"}, nil},
+	}
+	for _, c := range cases {
+		b := newFakeBar()
+		d, _, errb := testDeps(b, fastClock())
+		if code := run(c.args, d); code != exitOK {
+			t.Fatalf("%q: exit %d: %s", c.args, code, errb)
+		}
+		n := d.notifier.(*fakeNotifier)
+		if strings.Join(n.bodies, "|") != strings.Join(c.want, "|") {
+			t.Errorf("%q: notifications %q, want %q", c.args, n.bodies, c.want)
+		}
+		if !b.closed {
+			t.Errorf("%q: bar not removed", c.args)
+		}
+	}
+}
+
+func TestNotificationFailureKeepsExit0(t *testing.T) {
+	d, _, errb := testDeps(newFakeBar(), fastClock())
+	d.notifier = &fakeNotifier{err: errors.New("no server\non the bus")}
+	if code := run([]string{"5m"}, d); code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+	if got := errb.String(); got != "pombar: warning: notification failed: no server on the bus\n" {
+		t.Fatalf("stderr %q", got)
+	}
+}
+
+func TestSignalsCancel(t *testing.T) {
+	for sig, want := range map[os.Signal]int{syscall.SIGINT: 130, syscall.SIGTERM: 143} {
+		b := newFakeBar()
+		d, _, _ := testDeps(b, time.Now)
+		ch := make(chan os.Signal, 1)
+		ch <- sig
+		d.signals = ch
+		if code := run([]string{"25m"}, d); code != want {
+			t.Errorf("%v: exit %d, want %d", sig, code, want)
+		}
+		if !b.closed {
+			t.Errorf("%v: bar not removed", sig)
+		}
+		if n := d.notifier.(*fakeNotifier); len(n.bodies) != 0 {
+			t.Errorf("%v: notified on cancel", sig)
+		}
 	}
 }

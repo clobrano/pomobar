@@ -94,25 +94,32 @@ monotonic), so after a resume the timer ends within one tick.
 ## M3 — Notification and exit
 
 ### `internal/notify`
-- [ ] **T3.1** Add `github.com/godbus/dbus/v5`; connect to the session bus.
-- [ ] **T3.2** Call `org.freedesktop.Notifications.Notify` with app name `pombar`, summary `Time's up`, body = label, sensible timeout.
-- [ ] **T3.3** On failure, log a one-line warning to stderr; never change the exit code.
-- [ ] **T3.4** Interface so `cmd/pombar` can be tested with a fake notifier.
+- [x] **T3.1** Add `github.com/godbus/dbus/v5`; connect to the session bus.
+- [x] **T3.2** Call `org.freedesktop.Notifications.Notify` with app name `pombar`, summary `Time's up`, body = label, sensible timeout.
+- [x] **T3.3** On failure, log a one-line warning to stderr; never change the exit code.
+- [x] **T3.4** Interface so `cmd/pombar` can be tested with a fake notifier.
 
 ### End, cancel and errors
-- [ ] **T3.5** End of timer: send notification (unless `-quiet`), remove the bar, exit 0.
-- [ ] **T3.6** `signal.Notify` for SIGINT/SIGTERM: remove the bar immediately, no notification, exit 130 / 143.
-- [ ] **T3.7** Ensure teardown is flushed to the compositor before exit (roundtrip after destroy).
-- [ ] **T3.8** Missing layer-shell or failed Wayland connection: one-line error on stderr, exit 1.
-- [ ] **T3.9** Handle the compositor sending `closed` on the layer surface: exit cleanly (decide exit code, document it).
-- [ ] **T3.10** `-version` prints the injected version and exits 0.
+- [x] **T3.5** End of timer: send notification (unless `-quiet`), remove the bar, exit 0. (The bar is removed first, then the notification is sent; see `docs/decisions.md` D4.)
+- [x] **T3.6** `signal.Notify` for SIGINT/SIGTERM: remove the bar immediately, no notification, exit 130 / 143.
+- [x] **T3.7** Ensure teardown is flushed to the compositor before exit (roundtrip after destroy).
+- [x] **T3.8** Missing layer-shell or failed Wayland connection: one-line error on stderr, exit 1.
+- [x] **T3.9** Handle the compositor sending `closed` on the layer surface: exit cleanly (decide exit code, document it). Exit 1 with a one-line message, no notification (`docs/decisions.md` D5).
+- [x] **T3.10** `-version` prints the injected version and exits 0.
 
 ### M3 acceptance
-- [ ] Notification appears in Plasma with the label as body.
-- [ ] `-quiet` suppresses it.
-- [ ] Ctrl-C removes the bar at once and sends no notification (exit 130); `kill` gives 143.
-- [ ] Running on a compositor without layer-shell (e.g. GNOME/Mutter) exits 1 with a readable error.
-- [ ] Running with no `$WAYLAND_DISPLAY` exits 1 with a readable error.
+
+Automated coverage: `internal/notify` against a real `dbus-daemon` session
+bus with a fake notification server; `cmd/pombar` process tests send real
+SIGINT/SIGTERM to the binary (exit 130/143, bar torn down, no notification)
+and check the exit-1 paths against the fake compositor. The items below
+still need manual verification on KDE Plasma (and GNOME for layer-shell).
+
+- [ ] Notification appears in Plasma with the label as body. *(Verified on a test session bus; needs Plasma.)*
+- [x] `-quiet` suppresses it. *(Unit test; Plasma check recommended with the rest.)*
+- [ ] Ctrl-C removes the bar at once and sends no notification (exit 130); `kill` gives 143. *(Verified with real signals against the fake compositor and a real bus; needs an on-screen check on KDE.)*
+- [ ] Running on a compositor without layer-shell (e.g. GNOME/Mutter) exits 1 with a readable error. *(Verified with the fake compositor hiding the global; needs a run on GNOME.)*
+- [x] Running with no `$WAYLAND_DISPLAY` exits 1 with a readable error. *(Process test.)*
 
 ## M4 — Release
 
