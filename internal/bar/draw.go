@@ -3,23 +3,10 @@ package bar
 import (
 	"encoding/binary"
 	"image/color"
-	"math"
 )
 
 // bytesPerPixel is the size of one ARGB8888 pixel.
 const bytesPerPixel = 4
-
-// filledPixels converts a fraction in [0, 1] into a number of whole pixels
-// out of length, rounding to the nearest pixel.
-func filledPixels(fraction float64, length int) int {
-	if length <= 0 || math.IsNaN(fraction) || fraction <= 0 {
-		return 0
-	}
-	if fraction >= 1 {
-		return length
-	}
-	return int(math.Round(fraction * float64(length)))
-}
 
 // argb packs a premultiplied color.RGBA into a wl_shm ARGB8888 pixel value.
 func argb(c color.RGBA) uint32 {

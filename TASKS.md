@@ -58,32 +58,38 @@ teardown). The KDE items below still need manual verification on KDE Plasma.
 ## M2 — CLI and timer
 
 ### `internal/timer` (pure, no Wayland)
-- [ ] **T2.1** `Timer` type storing start and absolute deadline from `time.Now()` (monotonic); `Remaining(now)` and `Fraction(now)` clamped to `[0, 1]`; `Done(now)`.
-- [ ] **T2.2** `Color(fraction)`: green `#4CAF50` above 50 %, amber `#FFB300` 50–20 %, red `#E53935` below 20 %, with smooth interpolation across each boundary. Define the exact blend width in a constant and document it.
-- [ ] **T2.3** `FilledLength(fraction, length)` helper (integer pixels) used for "changed by ≥ 1 px" checks.
-- [ ] **T2.4** Unit tests: fraction at start/middle/end/past deadline, zero/negative durations rejected, color at and around each threshold, interpolation monotonicity, filled-length rounding.
+- [x] **T2.1** `Timer` type storing start and absolute deadline from `time.Now()` ~~(monotonic)~~ — uses the wall clock (`time.Now().Round(0)`), see the `timer.Timer` doc comment; `Remaining(now)` and `Fraction(now)` clamped to `[0, 1]`; `Done(now)`.
+- [x] **T2.2** `Color(fraction)`: green `#4CAF50` above 50 %, amber `#FFB300` 50–20 %, red `#E53935` below 20 %, with smooth interpolation across each boundary. Define the exact blend width in a constant and document it.
+- [x] **T2.3** `FilledLength(fraction, length)` helper (integer pixels) used for "changed by ≥ 1 px" checks.
+- [x] **T2.4** Unit tests: fraction at start/middle/end/past deadline, zero/negative durations rejected, color at and around each threshold, interpolation monotonicity, filled-length rounding.
 
 ### CLI (`cmd/pombar`)
-- [ ] **T2.5** Parse flags with the standard `flag` package: `-edge`, `-thickness`, `-reserve`, `-label`, `-quiet`, `-version`; positional `<duration>` via `time.ParseDuration`.
-- [ ] **T2.6** Validate: missing/extra args, non-positive duration, unknown edge, thickness < 1. Print usage and exit 2 on invalid usage.
-- [ ] **T2.7** Usage text matching the PRD examples.
+- [x] **T2.5** Parse flags with the standard `flag` package: `-edge`, `-thickness`, `-reserve`, `-label`, `-quiet`, `-version`; positional `<duration>` via `time.ParseDuration`.
+- [x] **T2.6** Validate: missing/extra args, non-positive duration, unknown edge, thickness < 1. Print usage and exit 2 on invalid usage.
+- [x] **T2.7** Usage text matching the PRD examples.
 
 ### Bar options (`internal/bar`)
-- [ ] **T2.8** Support all four edges: anchor edge + its two neighbours; size `(0, t)` for top/bottom, `(t, 0)` for left/right.
-- [ ] **T2.9** Shrink direction: horizontal bars shrink toward the left, vertical bars toward the bottom (fill from the bottom up).
-- [ ] **T2.10** `-reserve`: exclusive zone = thickness, otherwise 0.
-- [ ] **T2.11** HiDPI: read integer scale from `wl_output`, call `wl_surface.set_buffer_scale`, allocate buffers at `size × scale`.
-- [ ] **T2.12** Accept a color per frame from the caller (replace hard-coded green).
+- [x] **T2.8** Support all four edges: anchor edge + its two neighbours; size `(0, t)` for top/bottom, `(t, 0)` for left/right.
+- [x] **T2.9** Shrink direction: horizontal bars shrink toward the left, vertical bars toward the bottom (fill from the bottom up).
+- [x] **T2.10** `-reserve`: exclusive zone = thickness, otherwise 0.
+- [x] **T2.11** HiDPI: read integer scale from `wl_output`, call `wl_surface.set_buffer_scale`, allocate buffers at `size × scale`.
+- [x] **T2.12** Accept a color per frame from the caller (replace hard-coded green).
 
 ### Main loop
-- [ ] **T2.13** 1 s ticker computes fraction and color from the monotonic deadline; only attach/commit when filled length changes by ≥ 1 px or the color changes visibly (define threshold).
-- [ ] **T2.14** When remaining ≤ 0, stop ticking and proceed to the end-of-timer path.
+- [x] **T2.13** 1 s ticker computes fraction and color from the ~~monotonic~~ wall-clock deadline; only attach/commit when filled length changes by ≥ 1 px or the color changes visibly (`timer.ColorStep`: any 8-bit channel moves by ≥ 2).
+- [x] **T2.14** When remaining ≤ 0, stop ticking and proceed to the end-of-timer path.
 
 ### M2 acceptance
-- [ ] All four edges render correctly and shrink in the documented direction.
+
+The countdown uses the wall clock: Go's monotonic clock stops while a Linux
+laptop is suspended, so a monotonic deadline would end late by the length of
+the suspend. The main loop wakes at least once per second (Go timers are
+monotonic), so after a resume the timer ends within one tick.
+
+- [ ] All four edges render correctly and shrink in the documented direction. *(Verified against the fake compositor — anchors, sizes, pixels — in `internal/bar`; needs an on-screen check on KDE Plasma.)*
 - [ ] A 25 m timer ends within 1 s of wall-clock time.
-- [ ] Same, with a laptop suspend/resume in the middle (verify the monotonic clock behaviour across suspend on Linux; if it pauses, compare against wall clock and fix).
-- [ ] `go test ./internal/timer` covers fraction and color math.
+- [ ] Same, with a laptop suspend/resume in the middle (verify the monotonic clock behaviour across suspend on Linux; if it pauses, compare against wall clock and fix). *(Fixed by design: wall-clock deadline; simulated in `TestCountdownEndsAfterSuspend`. Needs a real suspend/resume on a laptop.)*
+- [x] `go test ./internal/timer` covers fraction and color math (100 % statement coverage).
 
 ## M3 — Notification and exit
 

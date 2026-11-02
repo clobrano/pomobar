@@ -1,6 +1,7 @@
 package bar
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"image/color"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/vcaesar/go-wayland/client"
 	wlr "github.com/vcaesar/go-wayland/wlr/layer-shell-v1"
+
+	"github.com/clobrano/pomobar/internal/timer"
 )
 
 // Namespace is the layer-shell namespace of the bar surface.
@@ -36,10 +39,75 @@ var (
 	ErrClosed = errors.New("the compositor closed the bar surface")
 )
 
+// Edge is the screen edge the bar is attached to.
+type Edge int
+
+// Screen edges.
+const (
+	Bottom Edge = iota
+	Top
+	Left
+	Right
+)
+
+// String returns the edge name as used on the command line.
+func (e Edge) String() string {
+	switch e {
+	case Bottom:
+		return "bottom"
+	case Top:
+		return "top"
+	case Left:
+		return "left"
+	case Right:
+		return "right"
+	}
+	return fmt.Sprintf("Edge(%d)", int(e))
+}
+
+// ParseEdge parses "top", "bottom", "left" or "right".
+func ParseEdge(s string) (Edge, error) {
+	for _, e := range []Edge{Bottom, Top, Left, Right} {
+		if s == e.String() {
+			return e, nil
+		}
+	}
+	return 0, fmt.Errorf("unknown edge %q (want top, bottom, left or right)", s)
+}
+
+// Vertical reports whether a bar on this edge runs vertically.
+func (e Edge) Vertical() bool { return e == Left || e == Right }
+
+// anchor is the layer-surface anchor: the edge plus its two neighbours, so
+// the bar stretches along the whole edge.
+func (e Edge) anchor() wlr.LayerSurfaceAnchor {
+	const (
+		top    = wlr.LayerSurfaceAnchorTop
+		bottom = wlr.LayerSurfaceAnchorBottom
+		left   = wlr.LayerSurfaceAnchorLeft
+		right  = wlr.LayerSurfaceAnchorRight
+	)
+	switch e {
+	case Top:
+		return top | left | right
+	case Left:
+		return left | top | bottom
+	case Right:
+		return right | top | bottom
+	default:
+		return bottom | left | right
+	}
+}
+
 // Options configures the bar.
 type Options struct {
+	// Edge the bar is attached to.
+	Edge Edge
 	// Thickness of the bar in surface-local (logical) pixels.
 	Thickness int
+	// Reserve makes the compositor keep the bar's strip free of other
+	// windows (exclusive zone = thickness) instead of drawing over them.
+	Reserve bool
 }
 
 // Bar is a countdown bar drawn as a layer-shell surface. Its methods are
@@ -58,6 +126,13 @@ type Bar struct {
 	layerShell *wlr.LayerShell
 	surface    *client.Surface
 	layer      *wlr.LayerSurface
+	registry   *client.Registry
+	compVer    uint32 // bound wl_compositor version
+	globals    map[string]global
+	outputs    map[uint32]*output // by global name
+	entered    map[*client.Output]bool
+	prefScale  int32 // wl_surface.preferred_buffer_scale, 0 if never sent
+	scale      int32 // buffer scale in use
 
 	configured    bool
 	width, height int // surface size from the last configure, logical px
@@ -108,6 +183,10 @@ func OpenAddr(addr string, opts Options) (*Bar, error) {
 		display:      display,
 		done:         make(chan struct{}),
 		dispatchDone: make(chan struct{}),
+		globals:      map[string]global{},
+		outputs:      map[uint32]*output{},
+		entered:      map[*client.Output]bool{},
+		scale:        1,
 	}
 	if err := b.setup(); err != nil {
 		_ = b.ctx.Close()
@@ -120,6 +199,12 @@ func OpenAddr(addr string, opts Options) (*Bar, error) {
 type global struct {
 	name    uint32
 	version uint32
+}
+
+// output tracks a wl_output and its integer scale.
+type output struct {
+	wl    *client.Output
+	scale int32
 }
 
 // setup runs on the caller's goroutine before the dispatch goroutine
@@ -135,12 +220,9 @@ func (b *Bar) setup() error {
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrConnect, err)
 	}
-	globals := map[string]global{}
-	registry.SetGlobalHandler(func(e client.RegistryGlobalEvent) {
-		if _, ok := globals[e.Interface]; !ok {
-			globals[strings.Clone(e.Interface)] = global{e.Name, e.Version}
-		}
-	})
+	b.registry = registry
+	registry.SetGlobalHandler(b.onGlobal)
+	registry.SetGlobalRemoveHandler(b.onGlobalRemove)
 	if err := b.display.Roundtrip(); err != nil {
 		return fmt.Errorf("%w: %w", ErrConnect, err)
 	}
@@ -148,27 +230,34 @@ func (b *Bar) setup() error {
 		return protoErr
 	}
 
-	bind := func(iface string, maxVersion uint32, p client.Proxy) error {
+	globals := b.globals
+	bind := func(iface string, maxVersion uint32, p client.Proxy) (uint32, error) {
 		g, ok := globals[iface]
 		if !ok {
-			return fmt.Errorf("%w: %s", ErrMissingGlobal, iface)
+			return 0, fmt.Errorf("%w: %s", ErrMissingGlobal, iface)
 		}
-		return registry.Bind(g.name, iface, min(g.version, maxVersion), p)
+		v := min(g.version, maxVersion)
+		return v, registry.Bind(g.name, iface, v, p)
 	}
 	if _, ok := globals[wlr.LayerShellInterfaceName]; !ok {
 		return ErrNoLayerShell
 	}
 	b.compositor = client.NewCompositor(b.ctx)
-	if err := bind(client.CompositorInterfaceName, 4, b.compositor); err != nil {
+	// v6 adds wl_surface.preferred_buffer_scale.
+	if b.compVer, err = bind(client.CompositorInterfaceName, 6, b.compositor); err != nil {
 		return err
 	}
 	b.shm = client.NewShm(b.ctx)
-	if err := bind(client.ShmInterfaceName, 1, b.shm); err != nil {
+	if _, err := bind(client.ShmInterfaceName, 1, b.shm); err != nil {
 		return err
 	}
 	b.layerShell = wlr.NewLayerShell(b.ctx)
-	if err := bind(wlr.LayerShellInterfaceName, 4, b.layerShell); err != nil {
+	if _, err := bind(wlr.LayerShellInterfaceName, 4, b.layerShell); err != nil {
 		return err
+	}
+	// Outputs were bound by onGlobal; collect their scale events.
+	if err := b.display.Roundtrip(); err != nil {
+		return fmt.Errorf("%w: %w", ErrConnect, err)
 	}
 
 	if b.surface, err = b.compositor.CreateSurface(); err != nil {
@@ -181,14 +270,25 @@ func (b *Bar) setup() error {
 	}
 	b.layer.SetConfigureHandler(b.onConfigure)
 	b.layer.SetClosedHandler(func(wlr.LayerSurfaceClosedEvent) { b.fail(ErrClosed) })
-	anchor := wlr.LayerSurfaceAnchorBottom | wlr.LayerSurfaceAnchorLeft | wlr.LayerSurfaceAnchorRight
-	if err := b.layer.SetAnchor(uint32(anchor)); err != nil {
+	b.surface.SetEnterHandler(b.onEnter)
+	b.surface.SetLeaveHandler(b.onLeave)
+	b.surface.SetPreferredBufferScaleHandler(b.onPreferredScale)
+	if err := b.layer.SetAnchor(uint32(b.opts.Edge.anchor())); err != nil {
 		return err
 	}
-	if err := b.layer.SetSize(0, uint32(b.opts.Thickness)); err != nil {
+	t := uint32(b.opts.Thickness)
+	w, h := uint32(0), t
+	if b.opts.Edge.Vertical() {
+		w, h = t, 0
+	}
+	if err := b.layer.SetSize(w, h); err != nil {
 		return err
 	}
-	if err := b.layer.SetExclusiveZone(0); err != nil {
+	zone := int32(0)
+	if b.opts.Reserve {
+		zone = int32(b.opts.Thickness)
+	}
+	if err := b.layer.SetExclusiveZone(zone); err != nil {
 		return err
 	}
 	if err := b.layer.SetKeyboardInteractivity(uint32(wlr.LayerSurfaceKeyboardInteractivityNone)); err != nil {
@@ -205,6 +305,13 @@ func (b *Bar) setup() error {
 	}
 	if err := region.Destroy(); err != nil {
 		return err
+	}
+
+	b.scale = b.wantScale()
+	if b.scale != 1 {
+		if err := b.surface.SetBufferScale(b.scale); err != nil {
+			return err
+		}
 	}
 
 	// Initial commit without a buffer; the compositor answers with
@@ -279,11 +386,12 @@ func (b *Bar) onConfigure(e wlr.LayerSurfaceConfigureEvent) {
 		return
 	}
 	w, h := int(e.Width), int(e.Height)
-	if h == 0 {
-		h = b.opts.Thickness
-	}
-	if w == 0 {
-		w = 1 // anchored left+right, the compositor should never send 0
+	// The stretched dimension should never be 0; the thick one is 0 only
+	// if the compositor leaves it to us.
+	if b.opts.Edge.Vertical() {
+		w, h = cmp.Or(w, b.opts.Thickness), cmp.Or(h, 1)
+	} else {
+		w, h = cmp.Or(w, 1), cmp.Or(h, b.opts.Thickness)
 	}
 	if !b.configured || w != b.width || h != b.height {
 		b.drawn = false // size changed: force a full redraw
@@ -311,14 +419,19 @@ func (b *Bar) render() error {
 	if !b.configured || !b.requested || b.closing {
 		return nil
 	}
-	bw, bh := b.width, b.height
+	bw, bh := b.width*int(b.scale), b.height*int(b.scale)
+	vertical := b.opts.Edge.Vertical()
 	length := bw
-	filled := filledPixels(b.fraction, length)
-	if b.drawn && filled == b.drawnFilled && b.color == b.drawnColor {
+	if vertical {
+		length = bh
+	}
+	filled := timer.FilledLength(b.fraction, length)
+	if b.drawn && filled == b.drawnFilled && !timer.VisiblyDifferent(b.color, b.drawnColor) {
 		return nil
 	}
 
 	var retired *shmPool
+	var err error
 	if b.pool == nil || b.pool.width != bw || b.pool.height != bh {
 		p, err := newShmPool(b.shm, bw, bh, b.onRelease)
 		if err != nil {
@@ -333,11 +446,16 @@ func (b *Bar) render() error {
 	}
 	b.pending = false
 
-	fill(buf.pix, bw, bh, b.pool.stride, false, filled, b.color)
+	fill(buf.pix, bw, bh, b.pool.stride, vertical, filled, b.color)
 	if err := b.surface.Attach(buf.wl, 0, 0); err != nil {
 		return err
 	}
-	if err := b.surface.Damage(0, 0, int32(b.width), int32(b.height)); err != nil {
+	if b.compVer >= 4 {
+		err = b.surface.DamageBuffer(0, 0, int32(bw), int32(bh))
+	} else {
+		err = b.surface.Damage(0, 0, int32(b.width), int32(b.height))
+	}
+	if err != nil {
 		return err
 	}
 	if err := b.surface.Commit(); err != nil {
@@ -414,4 +532,108 @@ func (b *Bar) sync(done func()) error {
 	client.PutUint32(req[4:8], uint32(len(req))<<16|opcode)
 	client.PutUint32(req[8:12], cb.ID())
 	return b.ctx.WriteMsg(req[:], nil)
+}
+
+// onGlobal records globals and binds every wl_output (also ones plugged
+// in later) to learn its scale.
+func (b *Bar) onGlobal(e client.RegistryGlobalEvent) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	iface := strings.Clone(e.Interface)
+	if iface == client.OutputInterfaceName {
+		if b.closing {
+			return
+		}
+		o := &output{wl: client.NewOutput(b.ctx), scale: 1}
+		o.wl.SetScaleHandler(func(ev client.OutputScaleEvent) { b.onOutputScale(o, ev.Factor) })
+		publish(o.wl)
+		// v2 adds the scale event.
+		if err := b.registry.Bind(e.Name, iface, min(e.Version, 2), o.wl); err != nil {
+			return
+		}
+		b.outputs[e.Name] = o
+		return
+	}
+	if _, ok := b.globals[iface]; !ok {
+		b.globals[iface] = global{e.Name, e.Version}
+	}
+}
+
+func (b *Bar) onGlobalRemove(e client.RegistryGlobalRemoveEvent) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if o, ok := b.outputs[e.Name]; ok {
+		delete(b.outputs, e.Name)
+		delete(b.entered, o.wl)
+		b.rescale()
+	}
+}
+
+func (b *Bar) onOutputScale(o *output, factor int32) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	o.scale = max(factor, 1)
+	b.rescale()
+}
+
+func (b *Bar) onEnter(e client.SurfaceEnterEvent) {
+	if e.Output == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.entered[e.Output] = true
+	b.rescale()
+}
+
+func (b *Bar) onLeave(e client.SurfaceLeaveEvent) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.entered, e.Output)
+	b.rescale()
+}
+
+func (b *Bar) onPreferredScale(e client.SurfacePreferredBufferScaleEvent) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.prefScale = max(e.Factor, 1)
+	b.rescale()
+}
+
+// wantScale picks the integer buffer scale: the compositor's preferred
+// scale if it sent one, else the largest scale of the outputs the surface
+// is on, else the scale of the only output, else 1. b.mu must be held.
+func (b *Bar) wantScale() int32 {
+	if b.prefScale > 0 {
+		return b.prefScale
+	}
+	var s int32
+	for _, o := range b.outputs {
+		if b.entered[o.wl] {
+			s = max(s, o.scale)
+		}
+	}
+	if s > 0 {
+		return s
+	}
+	if len(b.outputs) == 1 {
+		for _, o := range b.outputs {
+			return o.scale
+		}
+	}
+	return 1
+}
+
+// rescale switches to a new buffer scale and redraws. b.mu must be held.
+func (b *Bar) rescale() {
+	s := b.wantScale()
+	if s == b.scale || b.surface == nil || b.closing {
+		return
+	}
+	b.scale = s
+	if err := b.surface.SetBufferScale(s); err != nil {
+		return
+	}
+	b.drawn = false
+	_ = b.render()
 }

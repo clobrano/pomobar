@@ -265,3 +265,118 @@ func TestConcurrentDraw(t *testing.T) {
 		t.Fatal(st.ProtocolError)
 	}
 }
+
+func TestEdges(t *testing.T) {
+	const top, bottom, left, right = 1, 2, 4, 8
+	cases := []struct {
+		edge         Edge
+		anchor       uint32
+		reqW, reqH   uint32
+		frameW, frmH int
+	}{
+		{Bottom, bottom | left | right, 0, 6, 200, 6},
+		{Top, top | left | right, 0, 6, 200, 6},
+		{Left, left | top | bottom, 6, 0, 6, 100},
+		{Right, right | top | bottom, 6, 0, 6, 100},
+	}
+	for _, c := range cases {
+		t.Run(c.edge.String(), func(t *testing.T) {
+			s := startServer(t, fakewl.Options{OutputWidth: 200, OutputHeight: 100})
+			b := openBar(t, s, Options{Edge: c.edge, Thickness: 6})
+			if err := b.Draw(0.25, green); err != nil {
+				t.Fatal(err)
+			}
+			f := lastFrame(t, s, func(fakewl.Frame) bool { return true })
+			l := s.Snapshot().Layer
+			if l.Anchor != c.anchor || l.Width != c.reqW || l.Height != c.reqH {
+				t.Fatalf("anchor %#x size %dx%d, want %#x %dx%d", l.Anchor, l.Width, l.Height, c.anchor, c.reqW, c.reqH)
+			}
+			if f.Width != c.frameW || f.Height != c.frmH {
+				t.Fatalf("frame %dx%d, want %dx%d", f.Width, f.Height, c.frameW, c.frmH)
+			}
+			// Horizontal bars keep the left quarter; vertical bars keep
+			// the bottom quarter.
+			for y := range f.Height {
+				for x := range f.Width {
+					lit := x < f.Width/4
+					if c.edge.Vertical() {
+						lit = y >= f.Height-f.Height/4
+					}
+					if (f.Pixel(x, y) != 0) != lit {
+						t.Fatalf("pixel (%d,%d) lit=%v, want %v", x, y, f.Pixel(x, y) != 0, lit)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestParseEdge(t *testing.T) {
+	for _, e := range []Edge{Top, Bottom, Left, Right} {
+		got, err := ParseEdge(e.String())
+		if err != nil || got != e {
+			t.Errorf("ParseEdge(%q) = %v, %v", e.String(), got, err)
+		}
+	}
+	if _, err := ParseEdge("middle"); err == nil {
+		t.Error("ParseEdge(middle) succeeded")
+	}
+}
+
+func TestReserve(t *testing.T) {
+	for _, reserve := range []bool{false, true} {
+		s := startServer(t, fakewl.Options{})
+		openBar(t, s, Options{Thickness: 5, Reserve: reserve})
+		st, err := s.WaitFor(wait, func(st fakewl.State) bool { return st.Layer.Acked })
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := int32(0)
+		if reserve {
+			want = 5
+		}
+		if st.Layer.ExclusiveZone != want {
+			t.Errorf("reserve=%v: exclusive zone %d, want %d", reserve, st.Layer.ExclusiveZone, want)
+		}
+	}
+}
+
+func TestOutputScale(t *testing.T) {
+	s := startServer(t, fakewl.Options{OutputWidth: 100, OutputScale: 2})
+	b := openBar(t, s, Options{Thickness: 4})
+	_ = b.Draw(0.5, green)
+	f := lastFrame(t, s, func(fakewl.Frame) bool { return true })
+	if f.Width != 200 || f.Height != 8 || f.BufferScale != 2 {
+		t.Fatalf("frame %dx%d scale %d, want 200x8 scale 2", f.Width, f.Height, f.BufferScale)
+	}
+	if f.Pixel(99, 7) == 0 || f.Pixel(100, 0) != 0 {
+		t.Fatal("half of the scaled buffer is not filled")
+	}
+}
+
+func TestPreferredBufferScale(t *testing.T) {
+	s := startServer(t, fakewl.Options{OutputWidth: 100, PreferredScale: 3})
+	b := openBar(t, s, Options{Thickness: 4})
+	_ = b.Draw(1, green)
+	f := lastFrame(t, s, func(f fakewl.Frame) bool { return f.BufferScale == 3 })
+	if f.Width != 300 || f.Height != 12 {
+		t.Fatalf("frame %dx%d, want 300x12", f.Width, f.Height)
+	}
+	if st := s.Snapshot(); st.ProtocolError != "" {
+		t.Fatal(st.ProtocolError)
+	}
+}
+
+func TestColorChangeRedraws(t *testing.T) {
+	s := startServer(t, fakewl.Options{OutputWidth: 100})
+	b := openBar(t, s, Options{Thickness: 4})
+	_ = b.Draw(0.5, green)
+	lastFrame(t, s, func(fakewl.Frame) bool { return true })
+	_ = b.Draw(0.5, color.RGBA{0x4D, 0xAF, 0x50, 0xFF}) // 1 step: invisible
+	red := color.RGBA{0xE5, 0x39, 0x35, 0xFF}
+	_ = b.Draw(0.5, red)
+	lastFrame(t, s, func(f fakewl.Frame) bool { return f.Pixel(0, 0) == 0xFFE53935 })
+	if n := len(s.Snapshot().Frames); n != 2 {
+		t.Fatalf("frames = %d, want 2", n)
+	}
+}
