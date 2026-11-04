@@ -10,6 +10,7 @@ var (
 	Green = color.RGBA{0x4C, 0xAF, 0x50, 0xFF} // #4CAF50, more than 50 % left
 	Amber = color.RGBA{0xFF, 0xB3, 0x00, 0xFF} // #FFB300, 50 % to 20 % left
 	Red   = color.RGBA{0xE5, 0x39, 0x35, 0xFF} // #E53935, less than 20 % left
+	Blue  = color.RGBA{0x42, 0xA5, 0xF5, 0xFF} // #42A5F5, pomodoro breaks
 )
 
 // Color thresholds, as remaining fractions.

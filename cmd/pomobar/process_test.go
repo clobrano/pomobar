@@ -321,3 +321,107 @@ func TestClientWithoutTimer(t *testing.T) {
 		}
 	}
 }
+
+// A detached pomodoro of two short cycles: the second cycle starts only
+// when the notification's action button is pressed.
+func TestDetachedPomodoroActionButton(t *testing.T) {
+	s, srv, env := sessionEnv(t)
+	if code, _, errOut := runPomobar(t, env, "-label", "Write", "500ms", "500ms", "2"); code != 0 {
+		t.Fatalf("start: exit %d %q", code, errOut)
+	}
+	calls := srv.Wait(2, 10*time.Second)
+	if len(calls) != 2 || calls[0].Summary != "Time for a break" || calls[1].Summary != "Break is over" ||
+		len(calls[1].Actions) != 2 || calls[1].Actions[1] != "Start cycle 2/2" || calls[1].ExpireTimeout != 0 {
+		t.Fatalf("notifications %+v", calls)
+	}
+
+	// Nothing happens until the user approves.
+	time.Sleep(700 * time.Millisecond)
+	code, out, _ := runPomobar(t, env, "status")
+	if code != 0 || out != `waiting to start cycle 2/2 (run "pomobar next") — Write`+"\n" {
+		t.Fatalf("status while waiting: exit %d %q", code, out)
+	}
+	if n := len(srv.Calls()); n != 2 {
+		t.Fatalf("%d notifications while waiting", n)
+	}
+	// A full bar in dimmed green (premultiplied 0x7F265728).
+	if f, ok := s.Snapshot().LastFrame(); !ok || f.Pixel(0, 0) != 0x7F265728 || f.Pixel(399, 0) != 0x7F265728 {
+		t.Fatalf("waiting bar is not a full dimmed bar")
+	}
+
+	if err := srv.Invoke(2, "start"); err != nil {
+		t.Fatal(err)
+	}
+	calls = srv.Wait(4, 10*time.Second)
+	if len(calls) != 4 || calls[2].Body != "Write: Cycle 2/2 done: take a 500ms break." ||
+		calls[3].Summary != "Pomodoro complete" || calls[3].Body != "Write: All 2 cycles done." {
+		t.Fatalf("notifications %+v", calls)
+	}
+	if _, err := s.WaitFor(5*time.Second, func(st fakewl.State) bool { return st.Disconnected }); err != nil {
+		t.Fatal(err)
+	}
+	// The break bar was blue.
+	var blue bool
+	for _, f := range s.Snapshot().Frames {
+		if f.Pixel(0, 0) == 0xFF42A5F5 {
+			blue = true
+		}
+	}
+	if !blue {
+		t.Fatal("no blue break frame")
+	}
+}
+
+// Without action buttons the user starts the next cycle with `pomobar next`.
+func TestDetachedPomodoroNext(t *testing.T) {
+	_, srv, env := sessionEnv(t)
+	srv.SetActions(false)
+	// Work phases long enough for the client checks below to run inside
+	// cycle 2's, even under the race detector.
+	if code, _, errOut := runPomobar(t, env, "2s", "300ms", "2"); code != 0 {
+		t.Fatalf("start: exit %d %q", code, errOut)
+	}
+	calls := srv.Wait(2, 10*time.Second)
+	if len(calls) != 2 || calls[1].Body != `Run "pomobar next" to start cycle 2/2.` || len(calls[1].Actions) != 0 {
+		t.Fatalf("notifications %+v", calls)
+	}
+	if code, _, errOut := runPomobar(t, env, "pause"); code != 1 || !strings.Contains(errOut, `run "pomobar next"`) {
+		t.Fatalf("pause while waiting: exit %d %q", code, errOut)
+	}
+	code, out, _ := runPomobar(t, env, "next")
+	if code != 0 || out != "starting cycle 2/2\n" {
+		t.Fatalf("next: exit %d %q", code, out)
+	}
+	code, out, _ = runPomobar(t, env, "status")
+	if code != 0 || !strings.HasPrefix(out, "work 2/2: ") {
+		t.Fatalf("status: exit %d %q", code, out)
+	}
+	if code, _, errOut := runPomobar(t, env, "next"); code != 1 || errOut != "pomobar: the timer is not waiting to start a cycle\n" {
+		t.Fatalf("next while running: exit %d %q", code, errOut)
+	}
+	calls = srv.Wait(4, 10*time.Second)
+	if len(calls) != 4 || calls[3].Summary != "Pomodoro complete" {
+		t.Fatalf("notifications %+v", calls)
+	}
+}
+
+// `pomobar next` while the question is shown withdraws it.
+func TestNextClosesQuestion(t *testing.T) {
+	_, srv, env := sessionEnv(t)
+	if code, _, errOut := runPomobar(t, env, "300ms", "300ms", "2"); code != 0 {
+		t.Fatalf("start: exit %d %q", code, errOut)
+	}
+	if calls := srv.Wait(2, 10*time.Second); len(calls) != 2 {
+		t.Fatalf("notifications %+v", calls)
+	}
+	if code, _, errOut := runPomobar(t, env, "next"); code != 0 {
+		t.Fatalf("next: exit %d %q", code, errOut)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for len(srv.Closed()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if c := srv.Closed(); len(c) != 1 || c[0] != 2 {
+		t.Fatalf("withdrawn %v, want [2]", c)
+	}
+}
